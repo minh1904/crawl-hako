@@ -67,16 +67,23 @@ def save_cover(novel_dir: Path, image_bytes: bytes) -> Path:
     return cover_path
 
 
+def _fmt_dir(novel_dir: Path, fmt: str) -> Path:
+    """Trả về (và tạo) subfolder theo format: EPUB/, DOCX/, PDF/."""
+    d = novel_dir / fmt.upper()
+    d.mkdir(exist_ok=True)
+    return d
+
+
 def volume_file_exists(novel_dir: Path, volume_title: str, novel_title: str, fmt: str) -> bool:
     """Kiểm tra file output của tập đã tồn tại chưa."""
     filename = _volume_filename(volume_title, novel_title, fmt)
-    return (novel_dir / filename).exists()
+    return (_fmt_dir(novel_dir, fmt) / filename).exists()
 
 
 def volume_output_path(novel_dir: Path, volume_title: str, novel_title: str, fmt: str) -> Path:
-    """Trả về Path cho file output của tập."""
+    """Trả về Path cho file output của tập (trong subfolder format)."""
     filename = _volume_filename(volume_title, novel_title, fmt)
-    return novel_dir / filename
+    return _fmt_dir(novel_dir, fmt) / filename
 
 
 def _volume_filename(volume_title: str, novel_title: str, fmt: str) -> str:

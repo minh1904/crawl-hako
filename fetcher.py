@@ -1,9 +1,8 @@
 """
 fetcher.py — HTTP client với cloudscraper (bypass CDN anti-bot) + httpx fallback
 """
-import asyncio
-import time
 import logging
+import time
 from urllib.parse import urlparse
 
 import cloudscraper
@@ -13,6 +12,15 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://docln.sbs"
+
+
+def set_base_url(domain: str) -> None:
+    """Đổi domain runtime — dùng khi site chuyển domain mới."""
+    global BASE_URL
+    if not domain.startswith("http"):
+        domain = "https://" + domain
+    BASE_URL = domain.rstrip("/")
+
 
 _BROWSER_HEADERS = {
     "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -29,8 +37,6 @@ _UA = (
 )
 
 _scraper: cloudscraper.CloudScraper | None = None
-
-
 def get_scraper() -> cloudscraper.CloudScraper:
     global _scraper
     if _scraper is None:
@@ -68,14 +74,17 @@ def _referer_for(url: str) -> str:
     if "imgur" in domain:
         return "https://imgur.com/"
     if "hako" in domain:
-        return "https://ln.hako.vip/"
-    if "i2.hako" in domain or "cdn.hako" in domain:
-        return "https://ln.hako.vip/"
+        return BASE_URL + "/"   # dùng domain đang crawl (docln.sbs), không phải ln.hako.vip (chết)
     return BASE_URL + "/"
 
 
-def download_image(url: str, delay: float = 1.0, retries: int = 4) -> bytes | None:
+def download_image(url: str, delay: float = 1.0, retries: int = 4,
+                   page_url: str = "") -> bytes | None:
     """Tải ảnh, trả về bytes hoặc None nếu thất bại.
+
+    Args:
+        page_url: URL chapter chứa ảnh — dùng làm Referer (mimics browser chính xác nhất).
+                  Nếu để trống, fallback về _referer_for().
 
     Chiến lược:
       1. cloudscraper — xử lý Cloudflare JS challenge, CDN anti-bot
@@ -84,7 +93,7 @@ def download_image(url: str, delay: float = 1.0, retries: int = 4) -> bytes | No
     if not url or not url.startswith("http"):
         return None
 
-    referer = _referer_for(url)
+    referer = page_url or _referer_for(url)
     scraper = get_scraper()
     last_error = None
 
@@ -126,60 +135,22 @@ def download_image(url: str, delay: float = 1.0, retries: int = 4) -> bytes | No
     return None
 
 
-async def _download_one_async(
-    client: httpx.AsyncClient,
-    url: str,
-    sem: asyncio.Semaphore,
-    delay: float,
-) -> tuple[str, bytes | None]:
-    """Tải một ảnh bất đồng bộ, dùng semaphore để giới hạn concurrency."""
-    async with sem:
-        await asyncio.sleep(delay)
-        try:
-            resp = await client.get(url, headers={
-                "Referer": _referer_for(url),
-                "Accept": _IMG_ACCEPT,
-            })
-            resp.raise_for_status()
-            ct = resp.headers.get("content-type", "")
-            if "image" in ct or "octet" in ct:
-                return url, resp.content
-            logger.warning(f"Không phải ảnh ({ct}): {url}")
-        except Exception as e:
-            logger.warning(f"Async tải ảnh thất bại {url}: {e}")
-    return url, None
-
-
 def download_images_batch(
     urls: list[str],
     delay: float = 0.5,
-    concurrency: int = 5,
+    page_url: str = "",
 ) -> dict[str, bytes]:
-    """Tải nhiều ảnh song song bằng asyncio + httpx.AsyncClient.
-
-    Args:
-        urls: Danh sách URL ảnh cần tải.
-        delay: Delay giữa mỗi request trong semaphore (giây).
-        concurrency: Số request song song tối đa (semaphore).
-
-    Returns:
-        Dict {url: bytes} cho những ảnh tải thành công.
-    """
+    """Tải nhiều ảnh dùng scraper chính, truyền page_url làm Referer."""
     valid = [u for u in urls if u and u.startswith("http")]
     if not valid:
         return {}
 
-    async def _run() -> dict[str, bytes]:
-        sem = asyncio.Semaphore(concurrency)
-        async with httpx.AsyncClient(
-            http2=True, timeout=30, follow_redirects=True,
-            headers={"User-Agent": _UA, **_BROWSER_HEADERS},
-        ) as client:
-            tasks = [_download_one_async(client, url, sem, delay) for url in valid]
-            results = await asyncio.gather(*tasks)
-        return {url: data for url, data in results if data is not None}
-
-    return asyncio.run(_run())
+    results: dict[str, bytes] = {}
+    for url in valid:
+        data = download_image(url, delay=delay, page_url=page_url)
+        if data:
+            results[url] = data
+    return results
 
 
 def absolute_url(href: str) -> str:

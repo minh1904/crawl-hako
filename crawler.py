@@ -60,8 +60,13 @@ def _load_config() -> dict:
     return {}
 
 
-def _save_config(output: str, delay: float, fmts: list[str]) -> None:
-    data = {"output": output, "delay": delay, "format": fmts}
+def _save_config(output: str, delay: float, fmts: list[str], domain: str = "") -> None:
+    data = {
+        "output": output,
+        "delay": delay,
+        "format": fmts,
+        "domain": domain or "docln.sbs",
+    }
     try:
         CONFIG_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
@@ -190,7 +195,7 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
                 ]
                 if img_urls:
                     new_imgs = _fetcher.download_images_batch(
-                        img_urls, delay=max(0.3, delay / 3)
+                        img_urls, delay=max(0.3, delay / 3), page_url=chap_url
                     )
                     image_cache.update(new_imgs)
 
@@ -237,7 +242,7 @@ def crawl_listing(page_start: int, page_end, fmts: list[str], output_root: str, 
     total_novels = 0
 
     while True:
-        url = f"https://docln.sbs/danh-sach?page={page}"
+        url = f"{_fetcher.BASE_URL}/danh-sach?page={page}"
         logger.info(f"\n📄 Trang danh sách {page}: {url}")
 
         try:
@@ -295,6 +300,8 @@ Examples:
                         help="Thư mục output (mặc định: ./output)")
     parser.add_argument("--volumes", default=None,
                         help="Chọn tập cụ thể, vd: '1,3-5,7' hoặc 'all' (mặc định: all)")
+    parser.add_argument("--domain", default=None,
+                        help="Domain site (mặc định: docln.sbs), vd: --domain newsite.com")
 
     args = parser.parse_args()
 
@@ -310,6 +317,11 @@ Examples:
         args.delay = cfg["delay"]
     if args.format == ["epub"] and "format" in cfg:
         args.format = cfg["format"]
+    if args.domain is None:
+        args.domain = cfg.get("domain", "docln.sbs")
+
+    # Áp dụng domain
+    _fetcher.set_base_url(args.domain)
 
     # Hỏi địa điểm lưu nếu chưa được chỉ định (cả CLI lẫn config)
     if args.output == "output":
@@ -324,7 +336,7 @@ Examples:
     fmts = list(dict.fromkeys(args.format))  # dedup, giữ thứ tự
 
     # Lưu config hiện tại để dùng lần sau
-    _save_config(args.output, args.delay, fmts)
+    _save_config(args.output, args.delay, fmts, args.domain)
 
     if args.url:
         crawl_novel(args.url, fmts, args.output, args.delay, args.volumes)
