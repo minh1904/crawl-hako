@@ -182,7 +182,8 @@ def download_images_batch(
 _pw_instance = None
 _pw_browser  = None
 _pw_context  = None
-_pw_warmed: set[str] = set()   # page_url đã navigate để lấy CF cookies
+_pw_warmed: set[str] = set()           # page_url đã navigate để lấy CF cookies
+_pw_captured: dict[str, bytes] = {}    # ảnh đã capture trong lúc navigate (url → bytes)
 
 
 def _cleanup_playwright() -> None:
@@ -216,10 +217,15 @@ def _get_pw_context():
 
 
 def _playwright_download(url: str, page_url: str) -> bytes | None:
-    """Tải ảnh bằng Playwright — dùng JS fetch() trong browser để bypass CF JS challenge.
+    """Tải ảnh bằng Playwright — capture response trong lúc browser navigate chapter.
 
-    ctx.request.get() là HTTP call thuần — không execute JS → CF challenge timeout.
-    page.evaluate(fetch()) chạy trong browser engine đầy đủ → CF clearance cookie được dùng.
+    Cơ chế:
+    - Khi browser navigate chapter page, nó tự load tất cả ảnh CDN theo cách tự nhiên
+      (đúng Origin, đúng CF cookie, đúng Referer) → không bao giờ bị CF WAF block.
+    - Ta lắng nghe page.on("response") để capture bytes của mỗi ảnh CDN trong lúc load.
+    - Ảnh đã capture → trả về ngay, không cần thêm request nào.
+    - Ảnh chưa capture (lazy-load, không có trên trang) → fallback: fetch từ trang đã navigate
+      (Origin = chapter URL, không phải null) thay vì từ about:blank.
     """
     try:
         ctx = _get_pw_context()
@@ -227,21 +233,40 @@ def _playwright_download(url: str, page_url: str) -> bytes | None:
         logger.warning(str(e))
         return None
 
-    referer = page_url or _referer_for(url)
+    # ── Kiểm tra cache capture trước ────────────────────────────────────────
+    if url in _pw_captured:
+        return _pw_captured[url]
 
-    # Navigate chapter page 1 lần để browser lấy CF clearance cookie cho image CDN.
-    # Mark attempted TRƯỚC try/except để tránh retry storm (navigate lại cho mỗi ảnh).
+    # ── Navigate chapter page + capture tất cả ảnh CDN via response listener ─
     if page_url and page_url not in _pw_warmed:
-        _pw_warmed.add(page_url)
+        _pw_warmed.add(page_url)   # mark trước để tránh retry storm
+
         page = ctx.new_page()
+        captured_this_page: dict[str, bytes] = {}
+
+        def _on_response(response) -> None:
+            resp_url = response.url
+            if not ("hako.vip" in resp_url):
+                return
+            if not response.ok:
+                return
+            try:
+                captured_this_page[resp_url] = response.body()
+            except Exception:
+                pass
+
+        page.on("response", _on_response)
         try:
             page.goto(page_url, timeout=45_000, wait_until="networkidle")
-            page.wait_for_timeout(2000)   # buffer cho CF set-cookie
-            logger.info(f"Playwright: đã warm-up {page_url}")
+            page.wait_for_timeout(1000)
         except Exception as e:
             logger.warning(f"Playwright: không navigate được {page_url}: {e}")
         finally:
+            page.remove_listener("response", _on_response)
             page.close()
+
+        _pw_captured.update(captured_this_page)
+        logger.info(f"Playwright: đã capture {len(captured_this_page)} ảnh từ {page_url}")
 
         # Inject cookies vào cloudscraper để tái sử dụng không cần Playwright
         try:
@@ -252,10 +277,24 @@ def _playwright_download(url: str, page_url: str) -> bytes | None:
         except Exception as e:
             logger.warning(f"Playwright: inject cookies thất bại: {e}")
 
-    # Dùng page.evaluate(fetch()) — chạy trong JS engine với full cookie jar,
-    # tự handle CF challenge, không bị timeout như ctx.request.get()
+    # ── Trả về từ cache nếu đã capture ──────────────────────────────────────
+    if url in _pw_captured:
+        return _pw_captured[url]
+
+    # ── Fallback: fetch từ trang đã navigate (Origin đúng, không phải null) ──
+    # Dùng cho ảnh lazy-load hoặc không có sẵn trên chapter page.
+    if not page_url:
+        logger.warning(f"Playwright: không có page_url để fallback, bỏ qua: {url}")
+        return None
+
+    referer = page_url
     dl_page = ctx.new_page()
     try:
+        # Navigate trước để set đúng Origin (tránh Origin: null từ about:blank)
+        try:
+            dl_page.goto(page_url, timeout=20_000, wait_until="domcontentloaded")
+        except Exception:
+            pass  # dù fail vẫn thử fetch
         img_data = dl_page.evaluate(f"""async () => {{
             try {{
                 const resp = await fetch({json.dumps(url)}, {{
@@ -267,15 +306,13 @@ def _playwright_download(url: str, page_url: str) -> bytes | None:
                 if (!resp.ok) return null;
                 const buf = await resp.arrayBuffer();
                 return Array.from(new Uint8Array(buf));
-            }} catch(e) {{
-                return null;
-            }}
+            }} catch(e) {{ return null; }}
         }}""")
         if img_data:
             return bytes(img_data)
-        logger.warning(f"Playwright: fetch trả về null cho {url}")
+        logger.warning(f"Playwright: fallback fetch null cho {url}")
     except Exception as e:
-        logger.warning(f"Playwright download thất bại {url}: {e}")
+        logger.warning(f"Playwright: fallback thất bại {url}: {e}")
     finally:
         dl_page.close()
     return None
