@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+
+# Fonts tự tải về khi chạy
+fonts/
+
+# Output crawl
+output/
+
+# File test
+*.epub
+*.docx
+*.pdf
