@@ -101,6 +101,40 @@ BUILDERS = {
 }
 
 
+# ─── Preview: lấy thông tin trước khi crawl ──────────────────────────────────
+
+def fetch_novel_preview(novel_url: str, delay: float) -> tuple[dict, list[dict]]:
+    """Fetch trang truyện, trả về (novel_info, volumes) để hiển thị cho user chọn.
+
+    Returns:
+        novel_info: dict với title, author, ...
+        volumes: list of {volume_title, chapters: [...]}
+    """
+    soup = _fetcher.fetch(novel_url, delay=delay)
+    novel_info = _parser.parse_novel_info(soup)
+    volumes = _parser.parse_volume_list(soup)
+    return novel_info, volumes
+
+
+# ─── Per-novel file logging ───────────────────────────────────────────────────
+
+def _setup_novel_log(novel_dir: Path) -> logging.FileHandler:
+    """Gắn FileHandler vào root logger, ghi WARNING+ vào crawl.log của truyện."""
+    fh = logging.FileHandler(novel_dir / "crawl.log", encoding="utf-8")
+    fh.setLevel(logging.WARNING)
+    fh.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    logging.getLogger().addHandler(fh)
+    return fh
+
+
+def _teardown_novel_log(fh: logging.FileHandler) -> None:
+    logging.getLogger().removeHandler(fh)
+    fh.close()
+
+
 # ─── Core: crawl 1 truyện ────────────────────────────────────────────────────
 
 def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
@@ -117,120 +151,135 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
 
     # 2. Tạo thư mục output
     novel_dir = _storage.get_novel_dir(output_root, title)
+    _novel_log_fh = _setup_novel_log(novel_dir)
     _storage.log(novel_dir, f"Bắt đầu crawl: {novel_url}")
     _storage.save_info(novel_dir, novel_info)
 
-    # 3. Tải ảnh bìa
-    cover_bytes = None
-    cover_url = novel_info.get("cover_url", "")
-    if cover_url:
-        cover_bytes = _fetcher.download_image(cover_url, delay=delay)
-        if cover_bytes:
-            _storage.save_cover(novel_dir, cover_bytes)
-            logger.info(f"  Đã tải ảnh bìa: {cover_url}")
+    try:
+        # 3. Tải ảnh bìa
+        cover_bytes = None
+        cover_url = novel_info.get("cover_url", "")
+        if cover_url:
+            cover_bytes = _fetcher.download_image(cover_url, delay=delay)
+            if cover_bytes:
+                _storage.save_cover(novel_dir, cover_bytes)
+                logger.info(f"  Đã tải ảnh bìa: {cover_url}")
 
-    # 4. Parse danh sách tập
-    volumes = _parser.parse_volume_list(soup)
-    if not volumes:
-        logger.warning("  Không tìm thấy tập nào. Kiểm tra lại URL.")
-        _storage.log(novel_dir, "WARNING: Không tìm thấy tập nào")
-        return
+        # 4. Parse danh sách tập
+        volumes = _parser.parse_volume_list(soup)
+        if not volumes:
+            logger.warning("  Không tìm thấy tập nào. Kiểm tra lại URL.")
+            _storage.log(novel_dir, "WARNING: Không tìm thấy tập nào")
+            return
 
-    logger.info(f"  Tổng số tập: {len(volumes)}")
-    logger.info(f"  Formats:    {', '.join(fmts)}")
+        logger.info(f"  Tổng số tập: {len(volumes)}")
+        logger.info(f"  Formats:    {', '.join(fmts)}")
 
-    # 5. Load index (resume)
-    index = _storage.load_index(novel_dir)
+        # 5. Load index (resume)
+        index = _storage.load_index(novel_dir)
 
-    # 6. Lọc tập theo --volumes nếu có
-    selected = parse_volumes_arg(volumes_spec, len(volumes))
-    if selected is not None:
-        volumes = [v for i, v in enumerate(volumes, 1) if i in selected]
-        logger.info(f"  Crawl tập: {sorted(selected)} ({len(volumes)} tập)")
+        # 6. Lọc tập theo --volumes nếu có
+        selected = parse_volumes_arg(volumes_spec, len(volumes))
+        if selected is not None:
+            volumes = [v for i, v in enumerate(volumes, 1) if i in selected]
+            logger.info(f"  Crawl tập: {sorted(selected)} ({len(volumes)} tập)")
 
-    # 7. Crawl từng tập
-    for vol_num, volume in enumerate(volumes, 1):
-        vol_title = volume.get("volume_title") or f"Tập {vol_num}"
-        chapters = volume.get("chapters", [])
-        logger.info(f"\n  [{vol_num}/{len(volumes)}] {vol_title} — {len(chapters)} chương")
+        # 7. Crawl từng tập
+        for vol_num, volume in enumerate(volumes, 1):
+            vol_title = volume.get("volume_title") or f"Tập {vol_num}"
+            chapters = volume.get("chapters", [])
+            logger.info(f"\n  [{vol_num}/{len(volumes)}] {vol_title} — {len(chapters)} chương")
 
-        # Kiểm tra: bỏ qua tập nếu TẤT CẢ formats đã có
-        missing_fmts = [f for f in fmts if not _storage.volume_file_exists(novel_dir, vol_title, title, f)]
-        if not missing_fmts:
-            logger.info(f"  ✓ Đã có đủ {len(fmts)} file, bỏ qua tập này.")
-            continue
+            # Kiểm tra: bỏ qua tập nếu TẤT CẢ formats đã có
+            missing_fmts = [f for f in fmts if not _storage.volume_file_exists(novel_dir, vol_title, title, f)]
+            if not missing_fmts:
+                logger.info(f"  ✓ Đã có đủ {len(fmts)} file, bỏ qua tập này.")
+                continue
 
-        if len(missing_fmts) < len(fmts):
-            logger.info(f"  ↪ Thiếu: {', '.join(missing_fmts)} — sẽ build thêm.")
+            if len(missing_fmts) < len(fmts):
+                logger.info(f"  ↪ Thiếu: {', '.join(missing_fmts)} — sẽ build thêm.")
 
-        # Tải ảnh bìa tập (nếu có)
-        vol_cover_bytes = cover_bytes  # fallback: dùng bìa truyện
-        vol_cover_url = volume.get("volume_cover_url", "")
-        if vol_cover_url:
-            tmp = _fetcher.download_image(vol_cover_url, delay=delay)
-            if tmp:
-                vol_cover_bytes = tmp
+            # Tải ảnh bìa tập (nếu có)
+            vol_cover_bytes = cover_bytes  # fallback: dùng bìa truyện
+            vol_cover_url = volume.get("volume_cover_url", "")
+            if vol_cover_url:
+                tmp = _fetcher.download_image(vol_cover_url, delay=delay)
+                if tmp:
+                    vol_cover_bytes = tmp
 
-        # Crawl từng chương, thu thập nội dung + ảnh
-        chapters_data = []
-        image_cache: dict[str, bytes] = {}
+            # Crawl từng chương, thu thập nội dung + ảnh
+            chapters_data = []
+            image_cache: dict[str, bytes] = {}
+            vol_img_ok = 0
+            vol_img_fail = 0
 
-        pbar = tqdm(chapters, desc=f"  {vol_title[:35]}", unit="chap",
-                    dynamic_ncols=True, leave=True)
-        for chap in pbar:
-            chap_url = chap["url"]
-            chap_title = chap["title"]
-            pbar.set_postfix_str(chap_title[:45], refresh=False)
+            pbar = tqdm(chapters, desc=f"  {vol_title[:35]}", unit="chap",
+                        dynamic_ncols=True, leave=True)
+            for chap in pbar:
+                chap_url = chap["url"]
+                chap_title = chap["title"]
+                pbar.set_postfix_str(chap_title[:45], refresh=False)
 
-            try:
-                chap_soup = _fetcher.fetch(chap_url, delay=delay)
-                chap_data = _parser.parse_chapter_content(chap_soup)
-                if not chap_data.get("title"):
-                    chap_data["title"] = chap_title
+                try:
+                    chap_soup = _fetcher.fetch(chap_url, delay=delay)
+                    chap_data = _parser.parse_chapter_content(chap_soup)
+                    if not chap_data.get("title"):
+                        chap_data["title"] = chap_title
 
-                # Tải ảnh inline (song song, semaphore 5)
-                img_urls = [
-                    e["url"] for e in chap_data.get("elements", [])
-                    if e["type"] == "image" and e["url"] not in image_cache
-                ]
-                if img_urls:
-                    new_imgs = _fetcher.download_images_batch(
-                        img_urls, delay=max(0.3, delay / 3), page_url=chap_url
-                    )
-                    image_cache.update(new_imgs)
+                    # Tải ảnh inline
+                    img_urls = [
+                        e["url"] for e in chap_data.get("elements", [])
+                        if e["type"] == "image" and e["url"] not in image_cache
+                    ]
+                    if img_urls:
+                        new_imgs = _fetcher.download_images_batch(
+                            img_urls, delay=max(0.3, delay / 3), page_url=chap_url
+                        )
+                        image_cache.update(new_imgs)
+                        failed = [u for u in img_urls if u not in new_imgs]
+                        vol_img_ok   += len(new_imgs)
+                        vol_img_fail += len(failed)
+                        for u in failed:
+                            _storage.log(novel_dir, f"  IMG_FAIL [{chap_title}]: {u}")
 
-                chapters_data.append(chap_data)
-                index[chap_url] = "done"
-                _storage.save_index(novel_dir, index)
+                    chapters_data.append(chap_data)
+                    index[chap_url] = "done"
+                    _storage.save_index(novel_dir, index)
 
-            except Exception as e:
-                index[chap_url] = "error"
-                _storage.save_index(novel_dir, index)
-                tqdm.write(f"    ✗ Lỗi chương '{chap_title}': {e}")
-                _storage.log(novel_dir, f"  ERROR: {chap_title} — {e}")
-                chapters_data.append({"title": chap_title, "elements": [
-                    {"type": "text", "content": f"[Lỗi tải chương này: {e}]"}
-                ]})
+                except Exception as e:
+                    index[chap_url] = "error"
+                    _storage.save_index(novel_dir, index)
+                    tqdm.write(f"    ✗ Lỗi chương '{chap_title}': {e}")
+                    _storage.log(novel_dir, f"  ERROR: {chap_title} — {e}")
+                    chapters_data.append({"title": chap_title, "elements": [
+                        {"type": "text", "content": f"[Lỗi tải chương này: {e}]"}
+                    ]})
 
-        # 7. Build từng format còn thiếu
-        if not chapters_data:
-            logger.warning(f"  Tập '{vol_title}' không có chương nào, bỏ qua build.")
-            continue
+            if vol_img_ok + vol_img_fail > 0:
+                _storage.log(novel_dir, f"  Ảnh {vol_title}: OK={vol_img_ok}, FAIL={vol_img_fail}")
 
-        for fmt in missing_fmts:
-            out_path = _storage.volume_output_path(novel_dir, vol_title, title, fmt)
-            builder = BUILDERS[fmt]
-            try:
-                builder(out_path, novel_info, vol_title, chapters_data, vol_cover_bytes, image_cache)
-                _storage.log(novel_dir, f"Xuất xong: {out_path.name}")
-                logger.info(f"  ✅ [{fmt.upper()}] {out_path.name}")
-            except Exception as e:
-                logger.error(f"  ✗ Lỗi build {fmt.upper()} '{out_path.name}': {e}")
-                _storage.log(novel_dir, f"ERROR build {fmt}: {out_path.name} — {e}")
+            # 7. Build từng format còn thiếu
+            if not chapters_data:
+                logger.warning(f"  Tập '{vol_title}' không có chương nào, bỏ qua build.")
+                continue
 
-    logger.info(f"\n✅ Hoàn tất: {title}")
-    logger.info(f"   Output: {novel_dir}")
-    _storage.log(novel_dir, "=== Hoàn tất ===")
+            for fmt in missing_fmts:
+                out_path = _storage.volume_output_path(novel_dir, vol_title, title, fmt)
+                builder = BUILDERS[fmt]
+                try:
+                    builder(out_path, novel_info, vol_title, chapters_data, vol_cover_bytes, image_cache)
+                    _storage.log(novel_dir, f"Xuất xong: {out_path.name}")
+                    logger.info(f"  ✅ [{fmt.upper()}] {out_path.name}")
+                except Exception as e:
+                    logger.error(f"  ✗ Lỗi build {fmt.upper()} '{out_path.name}': {e}")
+                    _storage.log(novel_dir, f"ERROR build {fmt}: {out_path.name} — {e}")
+
+        logger.info(f"\n✅ Hoàn tất: {title}")
+        logger.info(f"   Output: {novel_dir}")
+        _storage.log(novel_dir, "=== Hoàn tất ===")
+
+    finally:
+        _teardown_novel_log(_novel_log_fh)
 
 
 # ─── Crawl theo trang danh sách ──────────────────────────────────────────────

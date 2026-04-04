@@ -25,7 +25,8 @@ Công cụ tải truyện từ [docln.sbs](https://docln.sbs) và xuất ra file
 - Cài dependencies:
 
 ```bash
-pip install -r requirements.txt
+py -m pip install -r requirements.txt
+playwright install chromium
 ```
 
 > Windows: nếu lệnh `python` không nhận, dùng `py` thay thế.

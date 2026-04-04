@@ -2,9 +2,7 @@
   "output": "D:\\Truyen",
   "delay": 1.5,
   "format": [
-    "docx",
-    "pdf",
-    "epub"
+    "docx"
   ],
   "domain": "docln.sbs"
 }

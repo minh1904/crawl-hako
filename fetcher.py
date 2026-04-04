@@ -1,6 +1,8 @@
 """
-fetcher.py — HTTP client với cloudscraper (bypass CDN anti-bot) + httpx fallback
+fetcher.py — HTTP client với cloudscraper (bypass CDN anti-bot) + httpx + Playwright fallback
 """
+import atexit
+import json
 import logging
 import time
 from urllib.parse import urlparse
@@ -74,11 +76,11 @@ def _referer_for(url: str) -> str:
     if "imgur" in domain:
         return "https://imgur.com/"
     if "hako" in domain:
-        return BASE_URL + "/"   # dùng domain đang crawl (docln.sbs), không phải ln.hako.vip (chết)
+        return BASE_URL + "/"   # docln.sbs được CDN chấp nhận làm Referer
     return BASE_URL + "/"
 
 
-def download_image(url: str, delay: float = 1.0, retries: int = 4,
+def download_image(url: str, delay: float = 1.0, retries: int = 2,
                    page_url: str = "") -> bytes | None:
     """Tải ảnh, trả về bytes hoặc None nếu thất bại.
 
@@ -89,6 +91,7 @@ def download_image(url: str, delay: float = 1.0, retries: int = 4,
     Chiến lược:
       1. cloudscraper — xử lý Cloudflare JS challenge, CDN anti-bot
       2. httpx HTTP/2 — fallback cho CDN còn lại
+      3. Playwright — browser thật, có CF cookies (chỉ khi page_url có)
     """
     if not url or not url.startswith("http"):
         return None
@@ -101,7 +104,16 @@ def download_image(url: str, delay: float = 1.0, retries: int = 4,
     for attempt in range(1, retries + 1):
         try:
             time.sleep(delay)
-            resp = scraper.get(url, timeout=30, headers={"Referer": referer, "Accept": _IMG_ACCEPT})
+            resp = scraper.get(url, timeout=15, headers={"Referer": referer, "Accept": _IMG_ACCEPT})
+            if resp.status_code == 403:
+                # CDN block (hotlink protection, Cloudflare) — retry cùng Referer vô ích
+                logger.warning(f"403 Forbidden (CDN block) — bỏ qua retry: {url}")
+                last_error = f"HTTP 403"
+                break
+            if resp.status_code >= 500:
+                # Server error (522, 502, 503...) — không retry, bỏ qua luôn
+                logger.warning(f"Server error {resp.status_code}, bỏ qua ảnh: {url}")
+                return None
             resp.raise_for_status()
             content_type = resp.headers.get("Content-Type", "")
             if "image" not in content_type and "octet" not in content_type:
@@ -114,22 +126,34 @@ def download_image(url: str, delay: float = 1.0, retries: int = 4,
             if attempt < retries:
                 time.sleep(delay * 2)
 
-    # ── Strategy 2: httpx HTTP/2 ──────────────────────────────────────────────
+    # ── Strategy 2: httpx HTTP/2 (chỉ cho lỗi mạng, không dùng khi 4xx/5xx) ──
     logger.info(f"Thử httpx fallback: {url}")
     try:
-        with httpx.Client(http2=True, timeout=30, follow_redirects=True) as client:
+        with httpx.Client(http2=True, timeout=10, follow_redirects=True) as client:
             resp = client.get(url, headers={
                 "User-Agent": _UA,
                 "Referer": referer,
                 "Accept": _IMG_ACCEPT,
             })
-            resp.raise_for_status()
-            content_type = resp.headers.get("content-type", "")
-            if "image" in content_type or "octet" in content_type:
-                return resp.content
-            logger.warning(f"httpx: không phải ảnh ({content_type}): {url}")
+            if resp.status_code == 403:
+                logger.warning(f"httpx: 403 Forbidden, bỏ qua: {url}")
+            elif resp.status_code >= 500:
+                logger.warning(f"httpx: server error {resp.status_code}, bỏ qua: {url}")
+            else:
+                resp.raise_for_status()
+                content_type = resp.headers.get("content-type", "")
+                if "image" in content_type or "octet" in content_type:
+                    return resp.content
+                logger.warning(f"httpx: không phải ảnh ({content_type}): {url}")
     except Exception as e:
         logger.warning(f"httpx fallback thất bại {url}: {e}")
+
+    # ── Strategy 3: Playwright (browser thật, có CF cookies) ─────────────────
+    if page_url:
+        logger.info(f"Thử Playwright fallback: {url}")
+        data = _playwright_download(url, page_url)
+        if data:
+            return data
 
     logger.error(f"Không thể tải ảnh {url}: {last_error}")
     return None
@@ -151,6 +175,110 @@ def download_images_batch(
         if data:
             results[url] = data
     return results
+
+
+# ─── Playwright fallback (lazy init) ─────────────────────────────────────────
+
+_pw_instance = None
+_pw_browser  = None
+_pw_context  = None
+_pw_warmed: set[str] = set()   # page_url đã navigate để lấy CF cookies
+
+
+def _cleanup_playwright() -> None:
+    global _pw_browser, _pw_instance, _pw_context
+    try:
+        if _pw_browser:
+            _pw_browser.close()
+        if _pw_instance:
+            _pw_instance.stop()
+    except Exception:
+        pass
+    _pw_browser = _pw_instance = _pw_context = None
+
+
+def _get_pw_context():
+    global _pw_instance, _pw_browser, _pw_context
+    if _pw_context is None:
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            raise RuntimeError("playwright chưa được cài. Chạy: py -m pip install playwright && playwright install chromium")
+        _pw_instance = sync_playwright().start()
+        _pw_browser  = _pw_instance.chromium.launch(headless=True)
+        _pw_context  = _pw_browser.new_context(
+            user_agent=_UA,
+            extra_http_headers={"Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8"},
+        )
+        atexit.register(_cleanup_playwright)
+        logger.info("Playwright browser đã khởi động (headless Chromium).")
+    return _pw_context
+
+
+def _playwright_download(url: str, page_url: str) -> bytes | None:
+    """Tải ảnh bằng Playwright — dùng JS fetch() trong browser để bypass CF JS challenge.
+
+    ctx.request.get() là HTTP call thuần — không execute JS → CF challenge timeout.
+    page.evaluate(fetch()) chạy trong browser engine đầy đủ → CF clearance cookie được dùng.
+    """
+    try:
+        ctx = _get_pw_context()
+    except RuntimeError as e:
+        logger.warning(str(e))
+        return None
+
+    referer = page_url or _referer_for(url)
+
+    # Navigate chapter page 1 lần để browser lấy CF clearance cookie cho image CDN.
+    # Mark attempted TRƯỚC try/except để tránh retry storm (navigate lại cho mỗi ảnh).
+    if page_url and page_url not in _pw_warmed:
+        _pw_warmed.add(page_url)
+        page = ctx.new_page()
+        try:
+            page.goto(page_url, timeout=45_000, wait_until="networkidle")
+            page.wait_for_timeout(2000)   # buffer cho CF set-cookie
+            logger.info(f"Playwright: đã warm-up {page_url}")
+        except Exception as e:
+            logger.warning(f"Playwright: không navigate được {page_url}: {e}")
+        finally:
+            page.close()
+
+        # Inject cookies vào cloudscraper để tái sử dụng không cần Playwright
+        try:
+            scraper = get_scraper()
+            for ck in ctx.cookies():
+                scraper.cookies.set(ck["name"], ck["value"], domain=ck.get("domain", ""))
+            logger.info("Playwright: đã inject cookies vào cloudscraper session.")
+        except Exception as e:
+            logger.warning(f"Playwright: inject cookies thất bại: {e}")
+
+    # Dùng page.evaluate(fetch()) — chạy trong JS engine với full cookie jar,
+    # tự handle CF challenge, không bị timeout như ctx.request.get()
+    dl_page = ctx.new_page()
+    try:
+        img_data = dl_page.evaluate(f"""async () => {{
+            try {{
+                const resp = await fetch({json.dumps(url)}, {{
+                    headers: {{
+                        "Referer": {json.dumps(referer)},
+                        "Accept": "image/webp,image/apng,image/*,*/*;q=0.8"
+                    }}
+                }});
+                if (!resp.ok) return null;
+                const buf = await resp.arrayBuffer();
+                return Array.from(new Uint8Array(buf));
+            }} catch(e) {{
+                return null;
+            }}
+        }}""")
+        if img_data:
+            return bytes(img_data)
+        logger.warning(f"Playwright: fetch trả về null cho {url}")
+    except Exception as e:
+        logger.warning(f"Playwright download thất bại {url}: {e}")
+    finally:
+        dl_page.close()
+    return None
 
 
 def absolute_url(href: str) -> str:

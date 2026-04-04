@@ -105,6 +105,7 @@ def _is_float(s: str) -> bool:
 
 def _action_crawl_url() -> None:
     cfg = _crawler._load_config()
+    delay = cfg.get("delay", 1.5)
 
     url = questionary.text(
         "URL truyện:",
@@ -114,29 +115,68 @@ def _action_crawl_url() -> None:
     if not url:
         return
 
-    fmts = _ask_formats(cfg.get("format", ["epub"]))
+    # Fetch danh sách tập
+    _fetcher.set_base_url(cfg.get("domain", "docln.sbs"))
+    console.print("[dim]Đang tải thông tin truyện...[/]")
+    try:
+        novel_info, volumes = _crawler.fetch_novel_preview(url, delay)
+    except Exception as e:
+        console.print(f"[red]Không lấy được thông tin: {e}[/]")
+        questionary.press_any_key_to_continue(style=_MENU_STYLE).ask()
+        return
+
+    # Hiển thị thông tin truyện
+    console.print()
+    t = Table(box=None, show_header=False, padding=(0, 1))
+    t.add_column(style="dim")
+    t.add_column()
+    t.add_row("Tên",    f"[bold]{novel_info.get('title', '?')}[/]")
+    t.add_row("Tác giả", novel_info.get("author", "?"))
+    t.add_row("Số tập", str(len(volumes)))
+    console.print(Panel(t, border_style="cyan"))
+
+    # Checkbox chọn tập
+    vol_choices = [
+        questionary.Choice(
+            f"Tập {i}: {v.get('volume_title', '(không có tên)')}  "
+            f"[dim]{len(v.get('chapters', []))} chương[/dim]",
+            value=i,
+            checked=True,
+        )
+        for i, v in enumerate(volumes, 1)
+    ]
+    selected = questionary.checkbox(
+        "Chọn tập muốn tải (Space bỏ chọn, Enter xác nhận):",
+        choices=vol_choices,
+        style=_MENU_STYLE,
+    ).ask()
+    if selected is None:
+        return
+    if not selected:
+        console.print("[yellow]Không có tập nào được chọn.[/]")
+        return
+
+    # Chuyển thành volumes_spec
+    if len(selected) == len(volumes):
+        volumes_spec = None  # tất cả
+    else:
+        volumes_spec = ",".join(str(i) for i in sorted(selected))
+
+    fmts   = _ask_formats(cfg.get("format", ["epub"]))
     if not fmts:
         console.print("[red]Chưa chọn format nào.[/]")
         return
-
-    volumes = questionary.text(
-        "Chọn tập (Enter = tất cả, vd: 1,3-5,7):",
-        default="",
-        style=_MENU_STYLE,
-    ).ask()
-    volumes = volumes.strip() or None
-
     output = _ask_output(cfg.get("output", "./output"))
-    delay  = cfg.get("delay", 1.5)
 
     # Xác nhận
     console.print()
+    vol_label = "Tất cả" if volumes_spec is None else f"Tập {volumes_spec}"
     t = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
     t.add_column(style="dim")
     t.add_column()
-    t.add_row("URL",    f"[cyan]{url}[/]")
+    t.add_row("Truyện", novel_info.get("title", "?"))
+    t.add_row("Tập",    vol_label)
     t.add_row("Format", ", ".join(f.upper() for f in fmts))
-    t.add_row("Tập",    volumes or "Tất cả")
     t.add_row("Output", output)
     console.print(Panel(t, title="Xác nhận", border_style="yellow"))
 
@@ -147,11 +187,10 @@ def _action_crawl_url() -> None:
     from pathlib import Path
     Path(output).mkdir(parents=True, exist_ok=True)
     _crawler._save_config(output, delay, fmts, cfg.get("domain", "docln.sbs"))
-    _fetcher.set_base_url(cfg.get("domain", "docln.sbs"))
 
     console.print()
     try:
-        _crawler.crawl_novel(url, fmts, output, delay, volumes)
+        _crawler.crawl_novel(url, fmts, output, delay, volumes_spec)
     except KeyboardInterrupt:
         console.print("\n[yellow]Đã dừng.[/]")
     except Exception as e:
