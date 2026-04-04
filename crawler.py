@@ -13,6 +13,8 @@ import json
 import logging
 import sys
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 # Fix Unicode output trên Windows (tránh UnicodeEncodeError với tiếng Việt)
@@ -49,6 +51,7 @@ _CONFIG_DEFAULTS = {
     "output": "output",
     "delay": 1.5,
     "format": ["epub"],
+    "workers": {"chapters": 3, "images": 5},
 }
 
 
@@ -61,12 +64,14 @@ def _load_config() -> dict:
     return {}
 
 
-def _save_config(output: str, delay: float, fmts: list[str], domain: str = "") -> None:
+def _save_config(output: str, delay: float, fmts: list[str], domain: str = "",
+                 workers: dict = None) -> None:
     data = {
         "output": output,
         "delay": delay,
         "format": fmts,
         "domain": domain or "docln.sbs",
+        "workers": workers or _CONFIG_DEFAULTS["workers"],
     }
     try:
         CONFIG_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -201,6 +206,48 @@ def _teardown_novel_log(fh: logging.FileHandler) -> None:
     fh.close()
 
 
+# ─── Chapter worker (chạy trong thread pool) ─────────────────────────────────
+
+def _fetch_chapter(
+    chap_idx: int,
+    chap: dict,
+    delay: float,
+    img_workers: int,
+) -> tuple:
+    """Fetch + parse 1 chương + tải toàn bộ ảnh inline. Thiết kế thread-safe.
+
+    Returns:
+        (chap_idx, chap_data, new_imgs, failed_urls, error)
+        error là None nếu thành công, Exception nếu thất bại.
+    """
+    chap_url   = chap["url"]
+    chap_title = chap["title"]
+    try:
+        soup      = _fetcher.fetch(chap_url, delay=delay)
+        chap_data = _parser.parse_chapter_content(soup)
+        if not chap_data.get("title"):
+            chap_data["title"] = chap_title
+
+        img_urls = [
+            e["url"] for e in chap_data.get("elements", [])
+            if e["type"] == "image"
+        ]
+        new_imgs: dict[str, bytes] = {}
+        failed:   list[str]        = []
+        if img_urls:
+            new_imgs = _fetcher.download_images_batch(
+                img_urls,
+                delay=max(0.3, delay / 3),
+                page_url=chap_url,
+                max_workers=img_workers,
+            )
+            failed = [u for u in img_urls if u not in new_imgs]
+
+        return chap_idx, chap_data, new_imgs, failed, None
+    except Exception as e:
+        return chap_idx, None, {}, [], e
+
+
 # ─── Core: crawl 1 truyện ────────────────────────────────────────────────────
 
 def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
@@ -273,53 +320,62 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
                 if tmp:
                     vol_cover_bytes = tmp
 
-            # Crawl từng chương, thu thập nội dung + ảnh
-            chapters_data = []
+            # Crawl từng chương song song, thu thập nội dung + ảnh
+            cfg_workers  = _load_config().get("workers", _CONFIG_DEFAULTS["workers"])
+            chap_workers = int(cfg_workers.get("chapters", 3))
+            img_workers  = int(cfg_workers.get("images",   5))
+
+            # Pre-allocate theo index để giữ đúng thứ tự chương trong sách
+            chapters_data: list        = [None] * len(chapters)
             image_cache: dict[str, bytes] = {}
-            vol_img_ok = 0
+            vol_img_ok   = 0
             vol_img_fail = 0
 
-            pbar = tqdm(chapters, desc=f"  {vol_title[:35]}", unit="chap",
-                        dynamic_ncols=True, leave=True)
-            for chap in pbar:
-                chap_url = chap["url"]
-                chap_title = chap["title"]
-                pbar.set_postfix_str(chap_title[:45], refresh=False)
+            _cache_lock = threading.Lock()   # bảo vệ image_cache + counters
+            _index_lock = threading.Lock()   # bảo vệ index dict + save_index
 
-                try:
-                    chap_soup = _fetcher.fetch(chap_url, delay=delay)
-                    chap_data = _parser.parse_chapter_content(chap_soup)
-                    if not chap_data.get("title"):
-                        chap_data["title"] = chap_title
+            pbar = tqdm(total=len(chapters), desc=f"  {vol_title[:35]}",
+                        unit="chap", dynamic_ncols=True, leave=True)
 
-                    # Tải ảnh inline
-                    img_urls = [
-                        e["url"] for e in chap_data.get("elements", [])
-                        if e["type"] == "image" and e["url"] not in image_cache
-                    ]
-                    if img_urls:
-                        new_imgs = _fetcher.download_images_batch(
-                            img_urls, delay=max(0.3, delay / 3), page_url=chap_url
-                        )
-                        image_cache.update(new_imgs)
-                        failed = [u for u in img_urls if u not in new_imgs]
-                        vol_img_ok   += len(new_imgs)
-                        vol_img_fail += len(failed)
+            with ThreadPoolExecutor(max_workers=chap_workers) as executor:
+                futures = {
+                    executor.submit(_fetch_chapter, i, chap, delay, img_workers): i
+                    for i, chap in enumerate(chapters)
+                }
+                for fut in as_completed(futures):
+                    i          = futures[fut]
+                    chap       = chapters[i]
+                    chap_url   = chap["url"]
+                    chap_title = chap["title"]
+
+                    idx, chap_data, new_imgs, failed, err = fut.result()
+
+                    if err:
+                        with _index_lock:
+                            index[chap_url] = "error"
+                            _storage.save_index(novel_dir, index)
+                        tqdm.write(f"    ✗ Lỗi chương '{chap_title}': {err}")
+                        _storage.log(novel_dir, f"  ERROR: {chap_title} — {err}")
+                        chapters_data[i] = {"title": chap_title, "elements": [
+                            {"type": "text", "content": f"[Lỗi tải chương này: {err}]"}
+                        ]}
+                    else:
+                        with _cache_lock:
+                            for img_url, img_data in new_imgs.items():
+                                if img_url not in image_cache:
+                                    image_cache[img_url] = img_data
+                            vol_img_ok   += len(new_imgs)
+                            vol_img_fail += len(failed)
                         for u in failed:
                             _storage.log(novel_dir, f"  IMG_FAIL [{chap_title}]: {u}")
+                        with _index_lock:
+                            index[chap_url] = "done"
+                            _storage.save_index(novel_dir, index)
+                        chapters_data[i] = chap_data
 
-                    chapters_data.append(chap_data)
-                    index[chap_url] = "done"
-                    _storage.save_index(novel_dir, index)
+                    pbar.update(1)
 
-                except Exception as e:
-                    index[chap_url] = "error"
-                    _storage.save_index(novel_dir, index)
-                    tqdm.write(f"    ✗ Lỗi chương '{chap_title}': {e}")
-                    _storage.log(novel_dir, f"  ERROR: {chap_title} — {e}")
-                    chapters_data.append({"title": chap_title, "elements": [
-                        {"type": "text", "content": f"[Lỗi tải chương này: {e}]"}
-                    ]})
+            pbar.close()
 
             if vol_img_ok + vol_img_fail > 0:
                 _storage.log(novel_dir, f"  Ảnh {vol_title}: OK={vol_img_ok}, FAIL={vol_img_fail}")

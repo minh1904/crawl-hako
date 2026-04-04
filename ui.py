@@ -365,7 +365,23 @@ def _action_settings() -> None:
     delay  = _ask_delay(cfg.get("delay", 1.5))
     output = _ask_output(cfg.get("output", "./output"))
 
-    _crawler._save_config(output, delay, fmts, domain)
+    # ── Workers (concurrency) ────────────────────────────────────────────────
+    cur_workers = cfg.get("workers", {"chapters": 3, "images": 5})
+    chap_w = questionary.text(
+        "Số chương fetch song song (1–10):",
+        default=str(cur_workers.get("chapters", 3)),
+        style=_MENU_STYLE,
+        validate=lambda v: True if v.isdigit() and 1 <= int(v) <= 10 else "Nhập số từ 1 đến 10",
+    ).ask() or "3"
+    img_w = questionary.text(
+        "Số ảnh tải song song / chương (1–20):",
+        default=str(cur_workers.get("images", 5)),
+        style=_MENU_STYLE,
+        validate=lambda v: True if v.isdigit() and 1 <= int(v) <= 20 else "Nhập số từ 1 đến 20",
+    ).ask() or "5"
+    workers = {"chapters": int(chap_w), "images": int(img_w)}
+
+    _crawler._save_config(output, delay, fmts, domain, workers)
     _fetcher.set_base_url(domain)
     console.print("[green]✓ Đã lưu cài đặt.[/]")
     input("\nNhấn Enter để tiếp tục...")

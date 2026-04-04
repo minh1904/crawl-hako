@@ -5,5 +5,9 @@
     "docx",
     "images"
   ],
-  "domain": "docln.sbs"
+  "domain": "docln.sbs",
+  "workers": {
+    "chapters": 3,
+    "images": 5
+  }
 }

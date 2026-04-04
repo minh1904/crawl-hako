@@ -4,7 +4,9 @@ fetcher.py — HTTP client với cloudscraper (bypass CDN anti-bot) + httpx + Pl
 import atexit
 import json
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 import cloudscraper
@@ -38,15 +40,17 @@ _UA = (
     "Chrome/120.0.0.0 Safari/537.36"
 )
 
-_scraper: cloudscraper.CloudScraper | None = None
+# Thread-local storage: mỗi thread có scraper riêng, tránh race condition
+_tls = threading.local()
+
 def get_scraper() -> cloudscraper.CloudScraper:
-    global _scraper
-    if _scraper is None:
-        _scraper = cloudscraper.create_scraper(
+    """Trả về scraper riêng cho thread hiện tại (thread-safe)."""
+    if not hasattr(_tls, "scraper"):
+        _tls.scraper = cloudscraper.create_scraper(
             browser={"browser": "chrome", "platform": "windows", "mobile": False}
         )
-        _scraper.headers.update(_BROWSER_HEADERS)
-    return _scraper
+        _tls.scraper.headers.update(_BROWSER_HEADERS)
+    return _tls.scraper
 
 
 def fetch(url: str, delay: float = 1.5, retries: int = 3) -> BeautifulSoup:
@@ -163,17 +167,28 @@ def download_images_batch(
     urls: list[str],
     delay: float = 0.5,
     page_url: str = "",
+    max_workers: int = 5,
 ) -> dict[str, bytes]:
-    """Tải nhiều ảnh dùng scraper chính, truyền page_url làm Referer."""
+    """Tải nhiều ảnh song song bằng ThreadPoolExecutor.
+
+    Args:
+        max_workers: Số luồng tải ảnh song song (mặc định 5).
+    """
     valid = [u for u in urls if u and u.startswith("http")]
     if not valid:
         return {}
 
     results: dict[str, bytes] = {}
-    for url in valid:
-        data = download_image(url, delay=delay, page_url=page_url)
-        if data:
-            results[url] = data
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(valid))) as ex:
+        fut_map = {ex.submit(download_image, u, delay, 2, page_url): u for u in valid}
+        for fut in as_completed(fut_map):
+            url_key = fut_map[fut]
+            try:
+                data = fut.result()
+                if data:
+                    results[url_key] = data
+            except Exception as e:
+                logger.warning(f"Lỗi tải ảnh {url_key}: {e}")
     return results
 
 
@@ -184,6 +199,7 @@ _pw_browser  = None
 _pw_context  = None
 _pw_warmed: set[str] = set()           # page_url đã navigate để lấy CF cookies
 _pw_captured: dict[str, bytes] = {}    # ảnh đã capture trong lúc navigate (url → bytes)
+_pw_lock     = threading.Lock()        # Playwright không thread-safe → serialize mọi truy cập
 
 
 def _cleanup_playwright() -> None:
@@ -224,98 +240,98 @@ def _playwright_download(url: str, page_url: str) -> bytes | None:
       (đúng Origin, đúng CF cookie, đúng Referer) → không bao giờ bị CF WAF block.
     - Ta lắng nghe page.on("response") để capture bytes của mỗi ảnh CDN trong lúc load.
     - Ảnh đã capture → trả về ngay, không cần thêm request nào.
-    - Ảnh chưa capture (lazy-load, không có trên trang) → fallback: fetch từ trang đã navigate
-      (Origin = chapter URL, không phải null) thay vì từ about:blank.
+    - Ảnh chưa capture (lazy-load, không có trên trang) → fallback: fetch từ trang đã navigate.
+
+    _pw_lock đảm bảo chỉ 1 thread dùng Playwright tại một thời điểm (không thread-safe).
     """
-    try:
-        ctx = _get_pw_context()
-    except RuntimeError as e:
-        logger.warning(str(e))
-        return None
+    with _pw_lock:
+        try:
+            ctx = _get_pw_context()
+        except RuntimeError as e:
+            logger.warning(str(e))
+            return None
 
-    # ── Kiểm tra cache capture trước ────────────────────────────────────────
-    if url in _pw_captured:
-        return _pw_captured[url]
+        # ── Kiểm tra cache capture trước ────────────────────────────────────
+        if url in _pw_captured:
+            return _pw_captured[url]
 
-    # ── Navigate chapter page + capture tất cả ảnh CDN via response listener ─
-    if page_url and page_url not in _pw_warmed:
-        _pw_warmed.add(page_url)   # mark trước để tránh retry storm
+        # ── Navigate chapter page + capture ảnh CDN via response listener ───
+        if page_url and page_url not in _pw_warmed:
+            _pw_warmed.add(page_url)   # mark trước để tránh retry storm
 
-        page = ctx.new_page()
-        captured_this_page: dict[str, bytes] = {}
+            page = ctx.new_page()
+            captured_this_page: dict[str, bytes] = {}
 
-        def _on_response(response) -> None:
-            resp_url = response.url
-            if not ("hako.vip" in resp_url):
-                return
-            if not response.ok:
-                return
+            def _on_response(response) -> None:
+                resp_url = response.url
+                if "hako.vip" not in resp_url:
+                    return
+                if not response.ok:
+                    return
+                try:
+                    captured_this_page[resp_url] = response.body()
+                except Exception:
+                    pass
+
+            page.on("response", _on_response)
             try:
-                captured_this_page[resp_url] = response.body()
+                page.goto(page_url, timeout=45_000, wait_until="networkidle")
+                page.wait_for_timeout(1000)
+            except Exception as e:
+                logger.warning(f"Playwright: không navigate được {page_url}: {e}")
+            finally:
+                page.remove_listener("response", _on_response)
+                page.close()
+
+            _pw_captured.update(captured_this_page)
+            logger.info(f"Playwright: đã capture {len(captured_this_page)} ảnh từ {page_url}")
+
+            # Inject cookies vào thread-local scraper hiện tại
+            try:
+                scraper = get_scraper()
+                for ck in ctx.cookies():
+                    scraper.cookies.set(ck["name"], ck["value"], domain=ck.get("domain", ""))
+                logger.info("Playwright: đã inject cookies vào cloudscraper session.")
+            except Exception as e:
+                logger.warning(f"Playwright: inject cookies thất bại: {e}")
+
+        # ── Trả về từ cache nếu đã capture ──────────────────────────────────
+        if url in _pw_captured:
+            return _pw_captured[url]
+
+        # ── Fallback: fetch từ trang đã navigate (Origin đúng, không null) ──
+        if not page_url:
+            logger.warning(f"Playwright: không có page_url để fallback, bỏ qua: {url}")
+            return None
+
+        referer = page_url
+        dl_page = ctx.new_page()
+        try:
+            try:
+                dl_page.goto(page_url, timeout=20_000, wait_until="domcontentloaded")
             except Exception:
-                pass
-
-        page.on("response", _on_response)
-        try:
-            page.goto(page_url, timeout=45_000, wait_until="networkidle")
-            page.wait_for_timeout(1000)
+                pass  # dù fail vẫn thử fetch
+            img_data = dl_page.evaluate(f"""async () => {{
+                try {{
+                    const resp = await fetch({json.dumps(url)}, {{
+                        headers: {{
+                            "Referer": {json.dumps(referer)},
+                            "Accept": "image/webp,image/apng,image/*,*/*;q=0.8"
+                        }}
+                    }});
+                    if (!resp.ok) return null;
+                    const buf = await resp.arrayBuffer();
+                    return Array.from(new Uint8Array(buf));
+                }} catch(e) {{ return null; }}
+            }}""")
+            if img_data:
+                return bytes(img_data)
+            logger.warning(f"Playwright: fallback fetch null cho {url}")
         except Exception as e:
-            logger.warning(f"Playwright: không navigate được {page_url}: {e}")
+            logger.warning(f"Playwright: fallback thất bại {url}: {e}")
         finally:
-            page.remove_listener("response", _on_response)
-            page.close()
-
-        _pw_captured.update(captured_this_page)
-        logger.info(f"Playwright: đã capture {len(captured_this_page)} ảnh từ {page_url}")
-
-        # Inject cookies vào cloudscraper để tái sử dụng không cần Playwright
-        try:
-            scraper = get_scraper()
-            for ck in ctx.cookies():
-                scraper.cookies.set(ck["name"], ck["value"], domain=ck.get("domain", ""))
-            logger.info("Playwright: đã inject cookies vào cloudscraper session.")
-        except Exception as e:
-            logger.warning(f"Playwright: inject cookies thất bại: {e}")
-
-    # ── Trả về từ cache nếu đã capture ──────────────────────────────────────
-    if url in _pw_captured:
-        return _pw_captured[url]
-
-    # ── Fallback: fetch từ trang đã navigate (Origin đúng, không phải null) ──
-    # Dùng cho ảnh lazy-load hoặc không có sẵn trên chapter page.
-    if not page_url:
-        logger.warning(f"Playwright: không có page_url để fallback, bỏ qua: {url}")
+            dl_page.close()
         return None
-
-    referer = page_url
-    dl_page = ctx.new_page()
-    try:
-        # Navigate trước để set đúng Origin (tránh Origin: null từ about:blank)
-        try:
-            dl_page.goto(page_url, timeout=20_000, wait_until="domcontentloaded")
-        except Exception:
-            pass  # dù fail vẫn thử fetch
-        img_data = dl_page.evaluate(f"""async () => {{
-            try {{
-                const resp = await fetch({json.dumps(url)}, {{
-                    headers: {{
-                        "Referer": {json.dumps(referer)},
-                        "Accept": "image/webp,image/apng,image/*,*/*;q=0.8"
-                    }}
-                }});
-                if (!resp.ok) return null;
-                const buf = await resp.arrayBuffer();
-                return Array.from(new Uint8Array(buf));
-            }} catch(e) {{ return null; }}
-        }}""")
-        if img_data:
-            return bytes(img_data)
-        logger.warning(f"Playwright: fallback fetch null cho {url}")
-    except Exception as e:
-        logger.warning(f"Playwright: fallback thất bại {url}: {e}")
-    finally:
-        dl_page.close()
-    return None
 
 
 def absolute_url(href: str) -> str:
