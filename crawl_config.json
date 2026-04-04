@@ -2,7 +2,8 @@
   "output": "D:\\Truyen",
   "delay": 1.5,
   "format": [
-    "docx"
+    "docx",
+    "images"
   ],
   "domain": "docln.sbs"
 }

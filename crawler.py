@@ -118,6 +118,70 @@ def fetch_novel_preview(novel_url: str, delay: float) -> tuple[dict, list[dict]]
     return novel_info, volumes
 
 
+# ─── Size estimation ─────────────────────────────────────────────────────────
+
+_AVG_IMG_BYTES  = 350 * 1024   # ~350 KB mỗi ảnh minh họa LN
+_AVG_TEXT_BYTES = 15  * 1024   # ~15 KB text mỗi chương sau nén
+_FMT_OVERHEAD   = {"epub": 120 * 1024, "docx": 60 * 1024, "pdf": 200 * 1024, "images": 0}
+
+
+def estimate_novel_size(
+    volumes: list[dict],
+    fmts: list[str],
+    delay: float,
+    progress_cb=None,
+) -> dict:
+    """Fetch HTML từng chapter để đếm ảnh, ước tính dung lượng output.
+
+    Không tải ảnh — chỉ parse HTML đếm số <img> tag.
+
+    Args:
+        volumes:     Danh sách tập đã lọc (từ parse_volume_list).
+        fmts:        Danh sách format output cần ước tính.
+        delay:       Delay giữa các request.
+        progress_cb: Callback(done: int, total: int) để cập nhật progress bar.
+
+    Returns:
+        {
+            "chapters": int,   tổng số chương
+            "images":   int,   tổng số ảnh tìm thấy
+            "per_fmt":  dict,  {fmt: bytes ước tính}
+            "total":    int,   tổng tất cả formats (bytes)
+        }
+    """
+    total_chaps = sum(len(v.get("chapters", [])) for v in volumes)
+    total_imgs  = 0
+    done        = 0
+
+    for volume in volumes:
+        for chap in volume.get("chapters", []):
+            try:
+                soup      = _fetcher.fetch(chap["url"], delay=delay)
+                chap_data = _parser.parse_chapter_content(soup)
+                img_count = sum(1 for e in chap_data.get("elements", []) if e["type"] == "image")
+                total_imgs += img_count
+            except Exception:
+                pass   # bỏ qua chương lỗi, không dừng estimate
+            done += 1
+            if progress_cb:
+                progress_cb(done, total_chaps)
+
+    img_bytes  = total_imgs  * _AVG_IMG_BYTES
+    text_bytes = total_chaps * _AVG_TEXT_BYTES
+
+    per_fmt = {}
+    for fmt in fmts:
+        overhead       = _FMT_OVERHEAD.get(fmt, 60 * 1024)
+        per_fmt[fmt]   = img_bytes + text_bytes + overhead
+
+    return {
+        "chapters": total_chaps,
+        "images":   total_imgs,
+        "per_fmt":  per_fmt,
+        "total":    sum(per_fmt.values()),
+    }
+
+
 # ─── Per-novel file logging ───────────────────────────────────────────────────
 
 def _setup_novel_log(novel_dir: Path) -> logging.FileHandler:

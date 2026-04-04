@@ -15,13 +15,23 @@ import questionary
 from questionary import Style
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, BarColumn, TaskProgressColumn, TextColumn
 from rich.table import Table
 from rich import box
 
 import fetcher as _fetcher
 import crawler as _crawler
+import parser as _parser
 
 console = Console()
+
+
+def _fmt_size(n: int) -> str:
+    """Định dạng bytes → chuỗi dễ đọc."""
+    if n < 1024:        return f"{n} B"
+    if n < 1024 ** 2:   return f"{n / 1024:.1f} KB"
+    if n < 1024 ** 3:   return f"{n / 1024 ** 2:.1f} MB"
+    return f"{n / 1024 ** 3:.2f} GB"
 
 _MENU_STYLE = Style([
     ("qmark",        "fg:#00d7ff bold"),
@@ -169,7 +179,44 @@ def _action_crawl_url() -> None:
         return
     output = _ask_output(cfg.get("output", "./output"))
 
-    # Xác nhận
+    # ── Ước tính dung lượng (tuỳ chọn) ──────────────────────────────────────
+    est = None
+    _est_ans = input("Ước tính dung lượng output trước khi crawl? [Y/n]: ").strip().lower()
+    if _est_ans != "n":
+        sel_idx       = _crawler.parse_volumes_arg(volumes_spec or "all", len(volumes))
+        selected_vols = [v for i, v in enumerate(volumes, 1)
+                         if sel_idx is None or i in sel_idx]
+        total_chaps   = sum(len(v.get("chapters", [])) for v in selected_vols)
+        console.print()
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("chương"),
+            console=console, transient=True,
+        ) as prog:
+            task = prog.add_task("Phân tích chapters...", total=total_chaps)
+            est  = _crawler.estimate_novel_size(
+                volumes     = selected_vols,
+                fmts        = fmts,
+                delay       = delay,
+                progress_cb = lambda done, _: prog.update(task, completed=done),
+            )
+
+        # Hiển thị kết quả ước tính
+        et = Table(box=None, show_header=False, padding=(0, 1))
+        et.add_column(style="dim")
+        et.add_column(justify="right")
+        et.add_row("Tổng chương", str(est["chapters"]))
+        et.add_row("Tổng ảnh",   str(est["images"]))
+        et.add_row("", "")
+        for fmt, sz in est["per_fmt"].items():
+            et.add_row(fmt.upper(), f"~{_fmt_size(sz)}")
+        et.add_row("[bold]Tổng cộng[/]", f"[bold green]~{_fmt_size(est['total'])}[/]")
+        console.print(Panel(et, title="Ước tính dung lượng (±30%)", border_style="green"))
+
+    # ── Xác nhận ─────────────────────────────────────────────────────────────
     console.print()
     vol_label = "Tất cả" if volumes_spec is None else f"Tập {volumes_spec}"
     t = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
@@ -177,12 +224,15 @@ def _action_crawl_url() -> None:
     t.add_column()
     t.add_row("Truyện", novel_info.get("title", "?"))
     t.add_row("Tập",    vol_label)
+    if est:
+        t.add_row("Ảnh",    f"~{est['images']} ảnh")
+        t.add_row("Est.",   f"~{_fmt_size(est['total'])}")
     t.add_row("Format", ", ".join(f.upper() for f in fmts))
     t.add_row("Output", output)
     console.print(Panel(t, title="Xác nhận", border_style="yellow"))
 
-    ok = questionary.confirm("Bắt đầu crawl?", default=True, style=_MENU_STYLE).ask()
-    if not ok:
+    _ok_ans = input("Bắt đầu crawl? [Y/n]: ").strip().lower()
+    if _ok_ans == "n":
         return
 
     from pathlib import Path
@@ -225,17 +275,61 @@ def _action_crawl_listing() -> None:
     output = _ask_output(cfg.get("output", "./output"))
     delay  = cfg.get("delay", 1.5)
 
+    # ── Ước tính dung lượng (chỉ khi biết số trang kết thúc) ────────────────
+    est_listing = None
+    if page_end != "auto":
+        _est_ans = input("Ước tính dung lượng output (dựa trên mẫu trang đầu)? [Y/n]: ").strip().lower()
+        if _est_ans != "n":
+            try:
+                console.print("[dim]Đang lấy mẫu trang đầu...[/]")
+                _fetcher.set_base_url(cfg.get("domain", "docln.sbs"))
+                sample_soup  = _fetcher.fetch(
+                    f"{_fetcher.BASE_URL}/danh-sach?page={page_start}", delay=delay
+                )
+                sample_urls  = _parser.parse_listing_page(sample_soup)
+                novels_per_pg = max(len(sample_urls), 1)
+                total_pages   = int(page_end) - int(page_start) + 1
+                total_novels  = novels_per_pg * total_pages
+
+                # Hằng số trung bình mỗi truyện (nhiều tập, ~30 chương, ~15 ảnh)
+                _AVG_CHAPS = 30
+                _AVG_IMGS  = 15
+                img_bytes  = total_novels * _AVG_IMGS  * _crawler._AVG_IMG_BYTES
+                txt_bytes  = total_novels * _AVG_CHAPS * _crawler._AVG_TEXT_BYTES
+                per_fmt = {
+                    fmt: img_bytes + txt_bytes + _crawler._FMT_OVERHEAD.get(fmt, 60 * 1024) * total_novels
+                    for fmt in fmts
+                }
+                est_listing = {"novels": total_novels, "per_pg": novels_per_pg,
+                               "pages": total_pages,   "per_fmt": per_fmt,
+                               "total": sum(per_fmt.values())}
+
+                et = Table(box=None, show_header=False, padding=(0, 1))
+                et.add_column(style="dim")
+                et.add_column(justify="right")
+                et.add_row("Truyện ước tính",
+                           f"~{total_novels}  ({novels_per_pg}/trang × {total_pages} trang)")
+                et.add_row("", "")
+                for fmt, sz in per_fmt.items():
+                    et.add_row(fmt.upper(), f"~{_fmt_size(sz)}")
+                et.add_row("[bold]Tổng cộng[/]", f"[bold green]~{_fmt_size(est_listing['total'])}[/]")
+                console.print(Panel(et, title="Ước tính dung lượng (±50%)", border_style="green"))
+            except Exception as e:
+                console.print(f"[yellow]Không thể ước tính: {e}[/]")
+
     console.print()
     t = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
     t.add_column(style="dim")
     t.add_column()
     t.add_row("Trang",  f"{page_start} → {page_end}")
+    if est_listing:
+        t.add_row("Est.", f"~{_fmt_size(est_listing['total'])}")
     t.add_row("Format", ", ".join(f.upper() for f in fmts))
     t.add_row("Output", output)
     console.print(Panel(t, title="Xác nhận", border_style="yellow"))
 
-    ok = questionary.confirm("Bắt đầu crawl?", default=True, style=_MENU_STYLE).ask()
-    if not ok:
+    _ok_ans = input("Bắt đầu crawl? [Y/n]: ").strip().lower()
+    if _ok_ans == "n":
         return
 
     from pathlib import Path
