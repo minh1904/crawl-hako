@@ -151,23 +151,43 @@ def _default_css() -> str:
 body {
     font-family: "Times New Roman", Times, serif;
     font-size: 1em;
-    line-height: 1.6;
+    line-height: 1.8;
     margin: 1em 2em;
     color: #1a1a1a;
+    background-color: #ffffff;
 }
 h1, h2, h3 {
     text-align: center;
     font-weight: bold;
-    margin: 1.5em 0 0.5em 0;
+    margin: 1.5em 0 0.8em 0;
+    page-break-after: avoid;
+}
+h2 {
+    page-break-before: always;
 }
 p {
+    text-align: justify;
     text-indent: 1.5em;
-    margin: 0.4em 0;
+    margin: 0.3em 0;
+    orphans: 2;
+    widows: 2;
 }
 img {
     max-width: 100%;
     height: auto;
     display: block;
-    margin: 1em auto;
+    margin: 1.2em auto;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    border-radius: 4px;
+}
+@media (prefers-color-scheme: dark) {
+    body {
+        color: #e0e0e0;
+        background-color: #1a1a1a;
+    }
+    img {
+        box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+        opacity: 0.92;
+    }
 }
 """

@@ -9,15 +9,19 @@ Sử dụng:
 """
 import argparse
 import io
+import json
 import logging
 import sys
+import re
+from pathlib import Path
 
 # Fix Unicode output trên Windows (tránh UnicodeEncodeError với tiếng Việt)
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 if sys.stderr.encoding and sys.stderr.encoding.lower() != "utf-8":
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
-from pathlib import Path
+
+from tqdm import tqdm
 
 import fetcher as _fetcher
 import parser as _parser
@@ -36,6 +40,53 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# ─── Config file ─────────────────────────────────────────────────────────────
+
+CONFIG_PATH = Path("crawl_config.json")
+
+_CONFIG_DEFAULTS = {
+    "output": "output",
+    "delay": 1.5,
+    "format": ["epub"],
+}
+
+
+def _load_config() -> dict:
+    if CONFIG_PATH.exists():
+        try:
+            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"Không đọc được config: {e}")
+    return {}
+
+
+def _save_config(output: str, delay: float, fmts: list[str]) -> None:
+    data = {"output": output, "delay": delay, "format": fmts}
+    try:
+        CONFIG_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Không ghi được config: {e}")
+
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+def parse_volumes_arg(spec: str, total: int) -> set[int]:
+    """Chuyển chuỗi '1,3-5,7' thành set 1-based index {1,3,4,5,7}.
+    Trả về None nếu spec là 'all' hoặc rỗng (crawl tất cả).
+    """
+    if not spec or spec.strip().lower() == "all":
+        return None
+    indices = set()
+    for part in re.split(r"[,\s]+", spec.strip()):
+        if "-" in part:
+            a, _, b = part.partition("-")
+            indices.update(range(int(a), int(b) + 1))
+        else:
+            indices.add(int(part))
+    # Lọc ngoài khoảng hợp lệ
+    return {i for i in indices if 1 <= i <= total}
+
+
 # ─── Builder dispatch ─────────────────────────────────────────────────────────
 
 BUILDERS = {
@@ -47,7 +98,8 @@ BUILDERS = {
 
 # ─── Core: crawl 1 truyện ────────────────────────────────────────────────────
 
-def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float) -> None:
+def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
+                volumes_spec: str | None = None) -> None:
     """Crawl toàn bộ 1 truyện từ URL trang truyện."""
     logger.info(f"▶ Bắt đầu crawl: {novel_url}")
 
@@ -85,7 +137,13 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float)
     # 5. Load index (resume)
     index = _storage.load_index(novel_dir)
 
-    # 6. Crawl từng tập
+    # 6. Lọc tập theo --volumes nếu có
+    selected = parse_volumes_arg(volumes_spec, len(volumes))
+    if selected is not None:
+        volumes = [v for i, v in enumerate(volumes, 1) if i in selected]
+        logger.info(f"  Crawl tập: {sorted(selected)} ({len(volumes)} tập)")
+
+    # 7. Crawl từng tập
     for vol_num, volume in enumerate(volumes, 1):
         vol_title = volume.get("volume_title") or f"Tập {vol_num}"
         chapters = volume.get("chapters", [])
@@ -112,9 +170,12 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float)
         chapters_data = []
         image_cache: dict[str, bytes] = {}
 
-        for chap_idx, chap in enumerate(chapters, 1):
+        pbar = tqdm(chapters, desc=f"  {vol_title[:35]}", unit="chap",
+                    dynamic_ncols=True, leave=True)
+        for chap in pbar:
             chap_url = chap["url"]
             chap_title = chap["title"]
+            pbar.set_postfix_str(chap_title[:45], refresh=False)
 
             try:
                 chap_soup = _fetcher.fetch(chap_url, delay=delay)
@@ -122,24 +183,25 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float)
                 if not chap_data.get("title"):
                     chap_data["title"] = chap_title
 
-                # Tải ảnh inline
-                for elem in chap_data.get("elements", []):
-                    if elem["type"] == "image":
-                        img_url = elem["url"]
-                        if img_url not in image_cache:
-                            img_bytes = _fetcher.download_image(img_url, delay=max(0.3, delay / 3))
-                            if img_bytes:
-                                image_cache[img_url] = img_bytes
+                # Tải ảnh inline (song song, semaphore 5)
+                img_urls = [
+                    e["url"] for e in chap_data.get("elements", [])
+                    if e["type"] == "image" and e["url"] not in image_cache
+                ]
+                if img_urls:
+                    new_imgs = _fetcher.download_images_batch(
+                        img_urls, delay=max(0.3, delay / 3)
+                    )
+                    image_cache.update(new_imgs)
 
                 chapters_data.append(chap_data)
                 index[chap_url] = "done"
                 _storage.save_index(novel_dir, index)
-                logger.info(f"    ✓ [{chap_idx}/{len(chapters)}] {chap_title}")
 
             except Exception as e:
                 index[chap_url] = "error"
                 _storage.save_index(novel_dir, index)
-                logger.error(f"    ✗ Lỗi chương '{chap_title}': {e}")
+                tqdm.write(f"    ✗ Lỗi chương '{chap_title}': {e}")
                 _storage.log(novel_dir, f"  ERROR: {chap_title} — {e}")
                 chapters_data.append({"title": chap_title, "elements": [
                     {"type": "text", "content": f"[Lỗi tải chương này: {e}]"}
@@ -231,6 +293,8 @@ Examples:
                         help="Delay giữa các request (giây, mặc định: 1.5)")
     parser.add_argument("--output", default="output",
                         help="Thư mục output (mặc định: ./output)")
+    parser.add_argument("--volumes", default=None,
+                        help="Chọn tập cụ thể, vd: '1,3-5,7' hoặc 'all' (mặc định: all)")
 
     args = parser.parse_args()
 
@@ -238,7 +302,16 @@ Examples:
         parser.print_help()
         sys.exit(1)
 
-    # Hỏi địa điểm lưu nếu chưa được chỉ định qua --output
+    # Load config — CLI args ghi đè lên config
+    cfg = _load_config()
+    if args.output == "output":
+        args.output = cfg.get("output", "output")
+    if args.delay == 1.5 and "delay" in cfg:
+        args.delay = cfg["delay"]
+    if args.format == ["epub"] and "format" in cfg:
+        args.format = cfg["format"]
+
+    # Hỏi địa điểm lưu nếu chưa được chỉ định (cả CLI lẫn config)
     if args.output == "output":
         print("Nhập đường dẫn thư mục lưu file (Enter để dùng mặc định './output'): ", end="", flush=True)
         user_input = input().strip()
@@ -250,8 +323,11 @@ Examples:
 
     fmts = list(dict.fromkeys(args.format))  # dedup, giữ thứ tự
 
+    # Lưu config hiện tại để dùng lần sau
+    _save_config(args.output, args.delay, fmts)
+
     if args.url:
-        crawl_novel(args.url, fmts, args.output, args.delay)
+        crawl_novel(args.url, fmts, args.output, args.delay, args.volumes)
     elif args.page:
         page_end = args.page_end
         if page_end != "auto":

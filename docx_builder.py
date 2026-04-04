@@ -98,19 +98,25 @@ def _add_cover_page(doc: Document, novel_info: dict, volume_title: str, cover_by
 
 
 def _add_image(doc: Document, img_bytes: bytes, label: str, max_width_inches: float = 4.5) -> None:
-    """Thêm ảnh vào document, tự co giãn theo max_width."""
+    """Thêm ảnh vào document, normalize về JPEG/PNG để đảm bảo tương thích."""
     try:
         pil_img = Image.open(io.BytesIO(img_bytes))
-        # Convert WEBP → JPEG
-        if pil_img.format == "WEBP" or pil_img.mode in ("RGBA", "P"):
-            buf = io.BytesIO()
+        pil_img.load()  # đảm bảo đã đọc hết dữ liệu
+
+        buf = io.BytesIO()
+        if pil_img.mode in ("RGBA", "LA"):
+            # Giữ transparency → PNG
+            pil_img.save(buf, format="PNG")
+            buf.seek(0)
+        else:
+            # Mọi format khác (WEBP, GIF, BMP, P, L, RGB, ...) → JPEG
             pil_img.convert("RGB").save(buf, format="JPEG", quality=90)
-            img_bytes = buf.getvalue()
+            buf.seek(0)
 
         para = doc.add_paragraph()
         para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = para.add_run()
-        run.add_picture(io.BytesIO(img_bytes), width=Inches(max_width_inches))
+        run.add_picture(buf, width=Inches(max_width_inches))
     except Exception as e:
         logger.warning(f"Không thêm được ảnh ({label}): {e}")
         doc.add_paragraph(f"[Không hiển thị được ảnh: {label}]")

@@ -1,6 +1,7 @@
 """
 fetcher.py — HTTP client với cloudscraper (bypass CDN anti-bot) + httpx fallback
 """
+import asyncio
 import time
 import logging
 from urllib.parse import urlparse
@@ -123,6 +124,62 @@ def download_image(url: str, delay: float = 1.0, retries: int = 4) -> bytes | No
 
     logger.error(f"Không thể tải ảnh {url}: {last_error}")
     return None
+
+
+async def _download_one_async(
+    client: httpx.AsyncClient,
+    url: str,
+    sem: asyncio.Semaphore,
+    delay: float,
+) -> tuple[str, bytes | None]:
+    """Tải một ảnh bất đồng bộ, dùng semaphore để giới hạn concurrency."""
+    async with sem:
+        await asyncio.sleep(delay)
+        try:
+            resp = await client.get(url, headers={
+                "Referer": _referer_for(url),
+                "Accept": _IMG_ACCEPT,
+            })
+            resp.raise_for_status()
+            ct = resp.headers.get("content-type", "")
+            if "image" in ct or "octet" in ct:
+                return url, resp.content
+            logger.warning(f"Không phải ảnh ({ct}): {url}")
+        except Exception as e:
+            logger.warning(f"Async tải ảnh thất bại {url}: {e}")
+    return url, None
+
+
+def download_images_batch(
+    urls: list[str],
+    delay: float = 0.5,
+    concurrency: int = 5,
+) -> dict[str, bytes]:
+    """Tải nhiều ảnh song song bằng asyncio + httpx.AsyncClient.
+
+    Args:
+        urls: Danh sách URL ảnh cần tải.
+        delay: Delay giữa mỗi request trong semaphore (giây).
+        concurrency: Số request song song tối đa (semaphore).
+
+    Returns:
+        Dict {url: bytes} cho những ảnh tải thành công.
+    """
+    valid = [u for u in urls if u and u.startswith("http")]
+    if not valid:
+        return {}
+
+    async def _run() -> dict[str, bytes]:
+        sem = asyncio.Semaphore(concurrency)
+        async with httpx.AsyncClient(
+            http2=True, timeout=30, follow_redirects=True,
+            headers={"User-Agent": _UA, **_BROWSER_HEADERS},
+        ) as client:
+            tasks = [_download_one_async(client, url, sem, delay) for url in valid]
+            results = await asyncio.gather(*tasks)
+        return {url: data for url, data in results if data is not None}
+
+    return asyncio.run(_run())
 
 
 def absolute_url(href: str) -> str:
