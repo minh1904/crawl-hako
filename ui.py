@@ -35,9 +35,10 @@ _MENU_STYLE = Style([
 ])
 
 FORMAT_CHOICES = [
-    questionary.Choice("EPUB",  value="epub"),
-    questionary.Choice("DOCX",  value="docx"),
-    questionary.Choice("PDF",   value="pdf"),
+    questionary.Choice("EPUB",   value="epub"),
+    questionary.Choice("DOCX",   value="docx"),
+    questionary.Choice("PDF",    value="pdf"),
+    questionary.Choice("Images", value="images"),
 ]
 
 
@@ -73,8 +74,8 @@ def _ask_output(default: str) -> str:
 
 
 def _ask_formats(defaults: list[str]) -> list[str]:
-    default_choices = [questionary.Choice(f.upper(), value=f, checked=(f in defaults))
-                       for f in ["epub", "docx", "pdf"]]
+    default_choices = [questionary.Choice(f.upper() if f != "images" else "Images", value=f, checked=(f in defaults))
+                       for f in ["epub", "docx", "pdf", "images"]]
     result = questionary.checkbox(
         "Format output (Space để chọn):",
         choices=default_choices,

@@ -75,15 +75,33 @@ def _fmt_dir(novel_dir: Path, fmt: str) -> Path:
 
 
 def volume_file_exists(novel_dir: Path, volume_title: str, novel_title: str, fmt: str) -> bool:
-    """Kiểm tra file output của tập đã tồn tại chưa."""
+    """Kiểm tra file (hoặc folder ảnh) output của tập đã tồn tại chưa."""
+    if fmt == "images":
+        d = _volume_images_dir_path(novel_dir, volume_title, novel_title)
+        return d.is_dir() and any(d.iterdir())
     filename = _volume_filename(volume_title, novel_title, fmt)
     return (_fmt_dir(novel_dir, fmt) / filename).exists()
 
 
 def volume_output_path(novel_dir: Path, volume_title: str, novel_title: str, fmt: str) -> Path:
-    """Trả về Path cho file output của tập (trong subfolder format)."""
+    """Trả về Path cho file output (hoặc folder ảnh) của tập."""
+    if fmt == "images":
+        d = _volume_images_dir_path(novel_dir, volume_title, novel_title)
+        d.mkdir(parents=True, exist_ok=True)
+        return d
     filename = _volume_filename(volume_title, novel_title, fmt)
     return _fmt_dir(novel_dir, fmt) / filename
+
+
+def _volume_images_dir_path(novel_dir: Path, volume_title: str, novel_title: str) -> Path:
+    """Trả về Path folder ảnh của tập: {novel_dir}/IMAGES/[Vol X] Novel Title/"""
+    safe_title = _safe_dirname(novel_title)
+    if volume_title:
+        safe_vol = _safe_dirname(volume_title)
+        folder = f"[{safe_vol}] {safe_title}"
+    else:
+        folder = safe_title
+    return novel_dir / "IMAGES" / folder
 
 
 def _volume_filename(volume_title: str, novel_title: str, fmt: str) -> str:

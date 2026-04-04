@@ -29,6 +29,7 @@ import storage as _storage
 import epub_builder
 import docx_builder
 import pdf_builder
+import images_builder
 
 # Cấu hình logging
 logging.basicConfig(
@@ -95,9 +96,10 @@ def parse_volumes_arg(spec: str, total: int) -> set[int]:
 # ─── Builder dispatch ─────────────────────────────────────────────────────────
 
 BUILDERS = {
-    "epub": epub_builder.build_epub,
-    "docx": docx_builder.build_docx,
-    "pdf": pdf_builder.build_pdf,
+    "epub":   epub_builder.build_epub,
+    "docx":   docx_builder.build_docx,
+    "pdf":    pdf_builder.build_pdf,
+    "images": images_builder.build_images,
 }
 
 
@@ -341,8 +343,8 @@ Examples:
     parser.add_argument("--page", type=int, help="Trang bắt đầu trong /danh-sach")
     parser.add_argument("--page-end", default="auto",
                         help="Trang kết thúc (số hoặc 'auto' để hết). Mặc định: auto")
-    parser.add_argument("--format", nargs="+", choices=["epub", "docx", "pdf"], default=["epub"],
-                        help="Format output: epub docx pdf (mặc định: epub). Có thể chọn nhiều.")
+    parser.add_argument("--format", nargs="+", choices=["epub", "docx", "pdf", "images"], default=["epub"],
+                        help="Format output: epub docx pdf images (mặc định: epub). Có thể chọn nhiều.")
     parser.add_argument("--delay", type=float, default=1.5,
                         help="Delay giữa các request (giây, mặc định: 1.5)")
     parser.add_argument("--output", default="output",
