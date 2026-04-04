@@ -123,7 +123,7 @@ def _action_crawl_url() -> None:
         novel_info, volumes = _crawler.fetch_novel_preview(url, delay)
     except Exception as e:
         console.print(f"[red]Không lấy được thông tin: {e}[/]")
-        questionary.press_any_key_to_continue(style=_MENU_STYLE).ask()
+        input("\nNhấn Enter để tiếp tục...")
         return
 
     # Hiển thị thông tin truyện
@@ -197,7 +197,7 @@ def _action_crawl_url() -> None:
     except Exception as e:
         console.print(f"[red]Lỗi: {e}[/]")
 
-    questionary.press_any_key_to_continue(style=_MENU_STYLE).ask()
+    input("\nNhấn Enter để tiếp tục...")
 
 
 def _action_crawl_listing() -> None:
@@ -252,7 +252,7 @@ def _action_crawl_listing() -> None:
     except Exception as e:
         console.print(f"[red]Lỗi: {e}[/]")
 
-    questionary.press_any_key_to_continue(style=_MENU_STYLE).ask()
+    input("\nNhấn Enter để tiếp tục...")
 
 
 def _action_settings() -> None:
@@ -274,7 +274,7 @@ def _action_settings() -> None:
     _crawler._save_config(output, delay, fmts, domain)
     _fetcher.set_base_url(domain)
     console.print("[green]✓ Đã lưu cài đặt.[/]")
-    questionary.press_any_key_to_continue(style=_MENU_STYLE).ask()
+    input("\nNhấn Enter để tiếp tục...")
 
 
 # ─── Main loop ────────────────────────────────────────────────────────────────
