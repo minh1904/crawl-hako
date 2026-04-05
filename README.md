@@ -17,6 +17,7 @@ Công cụ tải truyện từ [docln.sbs](https://docln.sbs) và xuất ra file
 - **Chapter-level resume** — chỉ tải lại chương thất bại, bỏ qua chương đã xong
 - **Chapter content cache** — lưu nội dung chương xuống disk, re-run không cần fetch lại HTML
 - **Retry loop với backoff** — tự động thử lại chương lỗi trước khi build file
+- **Rebuild format từ folder có sẵn** — scan folder, chọn truyện, build thêm format mới không cần crawl lại
 - Tên folder tự động có tag `[Truyện dịch]` hoặc `[AI dịch]`
 - Chia folder theo tình trạng: `Truyện đã hoàn thành` / `Truyện chưa hoàn thành`
 - Ước tính dung lượng output trước khi crawl
@@ -64,6 +65,7 @@ Hiện menu chọn chế độ bằng phím mũi tên:
 ? Chọn chế độ:
   ❯ 🔗  Crawl 1 truyện (URL)
     📄  Crawl danh sách (nhiều trang)
+    🔄  Build lại format từ folder có sẵn
     ⚙️   Cài đặt
     ────
     ❌  Thoát
@@ -127,10 +129,12 @@ output/
     │       ├── 000_cover.jpg
     │       └── 001.jpg
     ├── chapters_cache/     ← cache nội dung chương (resume)
-    │   ├── 0.json
-    │   └── 1.json
+    │   ├── 1_0.json        ← tập 1, chương 0
+    │   ├── 1_1.json
+    │   └── 2_0.json        ← tập 2, chương 0
     ├── cover.jpg
     ├── info.json
+    ├── volumes.json        ← cấu trúc tập/chương (dùng cho rebuild)
     ├── index.json          ← trạng thái từng chương (done/error)
     └── crawl_log.txt
 ```
@@ -182,6 +186,24 @@ Sau lần chạy đầu tiên, cài đặt được lưu tự động:
 | `split_mode` | `true` = chia folder HT/CHT, `false` = 1 folder chung |
 
 Chỉnh sửa file này hoặc dùng menu **Cài đặt** trong `ui.py`.
+
+---
+
+## Rebuild format từ folder có sẵn
+
+Nếu đã crawl trước đó (có `chapters_cache/`) và muốn build thêm format mới mà không crawl lại:
+
+```
+ui.py → 🔄 Build lại format từ folder có sẵn
+  → Chọn folder gốc → scan tự động tìm truyện
+  → Checkbox chọn truyện (hiển thị format đã có)
+  → Chọn format muốn build thêm → Rebuild
+```
+
+- Không fetch lại HTML chương — đọc thẳng từ `chapters_cache/`
+- Chỉ re-download ảnh (cần nhúng vào file)
+- Nếu chưa có `volumes.json`: tự fetch 1 request từ URL trong `info.json` để lấy cấu trúc tập
+- Truyện crawl bằng phiên bản cũ (chưa có cache): hiển thị placeholder và nhắc crawl lại
 
 ---
 
