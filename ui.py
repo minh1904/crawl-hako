@@ -253,6 +253,30 @@ def _action_crawl_url() -> None:
 def _action_crawl_listing() -> None:
     cfg = _crawler._load_config()
 
+    # ── Chọn nguồn danh sách ────────────────────────────────────────────────
+    src_choice = questionary.select(
+        "Nguồn danh sách:",
+        choices=[
+            questionary.Choice("📋  Danh sách mặc định (/danh-sach)", value="default"),
+            questionary.Choice("🔗  URL tự nhập (lọc theo thể loại, tag...)", value="custom"),
+        ],
+        style=_MENU_STYLE,
+    ).ask()
+    if not src_choice:
+        return
+
+    list_url = ""
+    if src_choice == "custom":
+        list_url = questionary.text(
+            "Nhập URL danh sách:",
+            instruction="(vd: https://docln.sbs/the-loai/mystery?truyendich=1&hoanthanh=1)",
+            style=_MENU_STYLE,
+            validate=lambda v: True if v.strip().startswith("http") else "Nhập URL hợp lệ (bắt đầu bằng http)",
+        ).ask()
+        if not list_url:
+            return
+        list_url = list_url.strip()
+
     page_start = questionary.text(
         "Trang bắt đầu:",
         default="1",
@@ -283,8 +307,9 @@ def _action_crawl_listing() -> None:
             try:
                 console.print("[dim]Đang lấy mẫu trang đầu...[/]")
                 _fetcher.set_base_url(cfg.get("domain", "docln.sbs"))
+                _base_url = list_url or f"{_fetcher.BASE_URL}/danh-sach"
                 sample_soup  = _fetcher.fetch(
-                    f"{_fetcher.BASE_URL}/danh-sach?page={page_start}", delay=delay
+                    _crawler._listing_page_url(_base_url, int(page_start)), delay=delay
                 )
                 sample_urls  = _parser.parse_listing_page(sample_soup)
                 novels_per_pg = max(len(sample_urls), 1)
@@ -321,6 +346,7 @@ def _action_crawl_listing() -> None:
     t = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
     t.add_column(style="dim")
     t.add_column()
+    t.add_row("Nguồn",  list_url if list_url else "/danh-sach (mặc định)")
     t.add_row("Trang",  f"{page_start} → {page_end}")
     if est_listing:
         t.add_row("Est.", f"~{_fmt_size(est_listing['total'])}")
@@ -340,7 +366,7 @@ def _action_crawl_listing() -> None:
     page_end_val = "auto" if page_end == "auto" else int(page_end)
     console.print()
     try:
-        _crawler.crawl_listing(int(page_start), page_end_val, fmts, output, delay)
+        _crawler.crawl_listing(int(page_start), page_end_val, fmts, output, delay, list_url=list_url)
     except KeyboardInterrupt:
         console.print("\n[yellow]Đã dừng.[/]")
     except Exception as e:

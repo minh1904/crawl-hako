@@ -406,14 +406,27 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
 
 # ─── Crawl theo trang danh sách ──────────────────────────────────────────────
 
-def crawl_listing(page_start: int, page_end, fmts: list[str], output_root: str, delay: float) -> None:
-    """Crawl danh sách truyện từ trang /danh-sach theo range trang."""
+def _listing_page_url(base: str, page: int) -> str:
+    """Ghép ?page=N hoặc &page=N tùy URL base đã có query string chưa."""
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}page={page}"
+
+
+def crawl_listing(page_start: int, page_end, fmts: list[str], output_root: str, delay: float,
+                  list_url: str = "") -> None:
+    """Crawl danh sách truyện theo range trang.
+
+    Args:
+        list_url: URL base tùy chỉnh (vd: https://docln.sbs/the-loai/mystery?truyendich=1).
+                  Nếu để trống sẽ dùng /danh-sach mặc định.
+    """
     auto_mode = (page_end == "auto")
     page = page_start
     total_novels = 0
+    base = list_url.strip() or f"{_fetcher.BASE_URL}/danh-sach"
 
     while True:
-        url = f"{_fetcher.BASE_URL}/danh-sach?page={page}"
+        url = _listing_page_url(base, page)
         logger.info(f"\n📄 Trang danh sách {page}: {url}")
 
         try:
@@ -457,6 +470,7 @@ Examples:
   python crawler.py --url https://docln.sbs/truyen/123-ten-truyen --format epub docx pdf
   python crawler.py --page 1 --page-end 5 --format epub
   python crawler.py --page 1 --page-end auto
+  python crawler.py --page 1 --page-end auto --list-url "https://docln.sbs/the-loai/mystery?hoanthanh=1"
         """,
     )
     parser.add_argument("--url", help="URL trang truyện cụ thể")
@@ -473,6 +487,9 @@ Examples:
                         help="Chọn tập cụ thể, vd: '1,3-5,7' hoặc 'all' (mặc định: all)")
     parser.add_argument("--domain", default=None,
                         help="Domain site (mặc định: docln.sbs), vd: --domain newsite.com")
+    parser.add_argument("--list-url", default="",
+                        help="URL danh sách tùy chỉnh, vd: https://docln.sbs/the-loai/mystery?hoanthanh=1. "
+                             "Phân trang tự thêm &page=N. Mặc định: /danh-sach")
 
     args = parser.parse_args()
 
@@ -519,7 +536,7 @@ Examples:
             except ValueError:
                 logger.error("--page-end phải là số hoặc 'auto'")
                 sys.exit(1)
-        crawl_listing(args.page, page_end, fmts, args.output, args.delay)
+        crawl_listing(args.page, page_end, fmts, args.output, args.delay, list_url=args.list_url)
 
 
 if __name__ == "__main__":
