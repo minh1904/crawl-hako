@@ -12,3 +12,6 @@ output/
 *.epub
 *.docx
 *.pdf
+
+# Hướng dẫn nội bộ
+GUIDE.md
