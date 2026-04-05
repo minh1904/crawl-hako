@@ -127,6 +127,19 @@ def _is_float(s: str) -> bool:
         return False
 
 
+def _confirm_or_back(start_label: str = "▶  Bắt đầu") -> bool:
+    """Hiện menu xác nhận 2 nút. Trả về True nếu người dùng chọn Bắt đầu."""
+    choice = questionary.select(
+        "Tiếp theo:",
+        choices=[
+            questionary.Choice(start_label,                  value="ok"),
+            questionary.Choice("←  Quay lại (về menu chính)", value="back"),
+        ],
+        style=_MENU_STYLE,
+    ).ask()
+    return choice == "ok"
+
+
 # ─── Actions ─────────────────────────────────────────────────────────────────
 
 def _action_crawl_url() -> None:
@@ -250,8 +263,7 @@ def _action_crawl_url() -> None:
     t.add_row("Output", output)
     console.print(Panel(t, title="Xác nhận", border_style="yellow"))
 
-    _ok_ans = input("Bắt đầu crawl? [Y/n]: ").strip().lower()
-    if _ok_ans == "n":
+    if not _confirm_or_back("▶  Bắt đầu crawl"):
         return
 
     from pathlib import Path
@@ -263,9 +275,158 @@ def _action_crawl_url() -> None:
     try:
         _crawler.crawl_novel(url, fmts, output, delay, volumes_spec)
     except KeyboardInterrupt:
-        console.print("\n[yellow]Đã dừng.[/]")
+        console.print("\n[yellow]⏸  Đã tạm dừng![/]")
+        console.print("[dim]Tiến trình đã lưu tự động. Chạy lại cùng URL để tiếp tục — các chương đã tải sẽ không tải lại.[/]")
     except Exception as e:
         console.print(f"[red]Lỗi: {e}[/]")
+
+    input("\nNhấn Enter để tiếp tục...")
+
+
+def _action_crawl_batch_urls() -> None:
+    """Crawl nhiều truyện từ danh sách URL nhập tay, file local, hoặc URL online."""
+    cfg   = _crawler._load_config()
+    delay = cfg.get("delay", 1.5)
+
+    input_mode = questionary.select(
+        "Cách nhập danh sách URL:",
+        choices=[
+            questionary.Choice("✏️   Nhập URL trực tiếp (Enter sau mỗi URL)", value="manual"),
+            questionary.Choice("📄  Đọc từ file local (.txt)",                 value="file"),
+            questionary.Choice("🌐  Tải từ URL link (file .txt online)",       value="url_file"),
+            questionary.Separator(),
+            questionary.Choice("←  Quay lại",                                  value="back"),
+        ],
+        style=_MENU_STYLE,
+    ).ask()
+    if not input_mode or input_mode == "back":
+        return
+
+    urls: list[str] = []
+
+    if input_mode == "manual":
+        console.print("[dim]Nhập từng URL. Dòng trống để kết thúc.[/]")
+        while True:
+            try:
+                line = input(f"  URL {len(urls) + 1}: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if not line:
+                break
+            if not line.startswith("http"):
+                console.print("[yellow]  ⚠ URL phải bắt đầu bằng http, bỏ qua.[/]")
+                continue
+            urls.append(line)
+
+    elif input_mode == "file":
+        from pathlib import Path
+        file_path_str = questionary.text(
+            "Đường dẫn file URL:",
+            style=_MENU_STYLE,
+            validate=lambda v: True if v.strip() else "Cần nhập đường dẫn",
+        ).ask()
+        if not file_path_str:
+            return
+        fp = Path(file_path_str.strip())
+        if not fp.is_file():
+            console.print(f"[red]Không tìm thấy file: {fp}[/]")
+            input("\nNhấn Enter để tiếp tục...")
+            return
+        lines = fp.read_text(encoding="utf-8").splitlines()
+        urls = [
+            ln.strip() for ln in lines
+            if ln.strip() and not ln.strip().startswith("#") and ln.strip().startswith("http")
+        ]
+        skipped = sum(
+            1 for ln in lines
+            if ln.strip() and not ln.strip().startswith("#") and not ln.strip().startswith("http")
+        )
+        if skipped:
+            console.print(f"[yellow]⚠ Bỏ qua {skipped} dòng không hợp lệ.[/]")
+
+    else:  # url_file
+        remote_url = questionary.text(
+            "Link URL tới file .txt:",
+            style=_MENU_STYLE,
+            validate=lambda v: True if v.strip().startswith("http") else "Cần URL hợp lệ (bắt đầu bằng http)",
+        ).ask()
+        if not remote_url:
+            return
+        console.print("[dim]Đang tải file danh sách...[/]")
+        try:
+            import urllib.request
+            with urllib.request.urlopen(remote_url.strip(), timeout=15) as resp:
+                content = resp.read().decode("utf-8")
+        except Exception as e:
+            console.print(f"[red]Không tải được file: {e}[/]")
+            input("\nNhấn Enter để tiếp tục...")
+            return
+        lines = content.splitlines()
+        urls = [
+            ln.strip() for ln in lines
+            if ln.strip() and not ln.strip().startswith("#") and ln.strip().startswith("http")
+        ]
+        skipped = sum(
+            1 for ln in lines
+            if ln.strip() and not ln.strip().startswith("#") and not ln.strip().startswith("http")
+        )
+        if skipped:
+            console.print(f"[yellow]⚠ Bỏ qua {skipped} dòng không hợp lệ.[/]")
+
+    if not urls:
+        console.print("[yellow]Không có URL nào được nhập.[/]")
+        input("\nNhấn Enter để tiếp tục...")
+        return
+
+    console.print(f"\n[green]✓ {len(urls)} URL hợp lệ[/]")
+
+    fmts = _ask_formats(cfg.get("format", ["epub"]))
+    if not fmts:
+        console.print("[red]Chưa chọn format nào.[/]")
+        return
+    output     = _ask_output(cfg.get("output", "./output"))
+    split_mode = _ask_split_mode(cfg.get("split_mode", False))
+
+    # Confirmation panel
+    console.print()
+    t = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
+    t.add_column(style="dim")
+    t.add_column()
+    t.add_row("Số truyện", str(len(urls)))
+    t.add_row("Format",    ", ".join(f.upper() for f in fmts))
+    t.add_row("Output",    output)
+    t.add_row("Delay",     f"{delay}s")
+    for i, u in enumerate(urls[:5], 1):
+        t.add_row(f"URL {i}", f"[dim]{u}[/]")
+    if len(urls) > 5:
+        t.add_row("...", f"[dim]và {len(urls) - 5} URL khác[/]")
+    console.print(Panel(t, title="Xác nhận batch crawl", border_style="yellow"))
+
+    if not _confirm_or_back("▶  Bắt đầu crawl batch"):
+        return
+
+    from pathlib import Path
+    Path(output).mkdir(parents=True, exist_ok=True)
+    _crawler._save_config(output, delay, fmts, cfg.get("domain", "docln.sbs"),
+                          cfg.get("workers"), split_mode)
+    _fetcher.set_base_url(cfg.get("domain", "docln.sbs"))
+
+    console.print()
+    result = _crawler.crawl_batch_urls(urls, fmts, output, delay)
+
+    # Summary panel
+    console.print()
+    s = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
+    s.add_column(style="dim")
+    s.add_column()
+    s.add_row("Tổng",                 str(len(urls)))
+    s.add_row("[green]Thành công[/]", f"[green]{len(result['ok'])}[/]")
+    s.add_row("[red]Thất bại[/]",     f"[red]{len(result['fail'])}[/]")
+    if result["fail"]:
+        s.add_row("", "")
+        for u, err in result["fail"]:
+            s.add_row("[red]✗[/]", f"[dim]{u}[/]\n  {err}")
+    console.print(Panel(s, title="Kết quả batch", border_style="cyan"))
 
     input("\nNhấn Enter để tiếp tục...")
 
@@ -277,12 +438,14 @@ def _action_crawl_listing() -> None:
     src_choice = questionary.select(
         "Nguồn danh sách:",
         choices=[
-            questionary.Choice("📋  Danh sách mặc định (/danh-sach)", value="default"),
+            questionary.Choice("📋  Danh sách mặc định (/danh-sach)",          value="default"),
             questionary.Choice("🔗  URL tự nhập (lọc theo thể loại, tag...)", value="custom"),
+            questionary.Separator(),
+            questionary.Choice("←  Quay lại",                                  value="back"),
         ],
         style=_MENU_STYLE,
     ).ask()
-    if not src_choice:
+    if not src_choice or src_choice == "back":
         return
 
     list_url = ""
@@ -375,8 +538,7 @@ def _action_crawl_listing() -> None:
     t.add_row("Output", output)
     console.print(Panel(t, title="Xác nhận", border_style="yellow"))
 
-    _ok_ans = input("Bắt đầu crawl? [Y/n]: ").strip().lower()
-    if _ok_ans == "n":
+    if not _confirm_or_back("▶  Bắt đầu crawl danh sách"):
         return
 
     from pathlib import Path
@@ -390,7 +552,8 @@ def _action_crawl_listing() -> None:
     try:
         _crawler.crawl_listing(int(page_start), page_end_val, fmts, output, delay, list_url=list_url)
     except KeyboardInterrupt:
-        console.print("\n[yellow]Đã dừng.[/]")
+        console.print("\n[yellow]⏸  Đã tạm dừng![/]")
+        console.print("[dim]Tiến trình đã lưu tự động. Chạy lại để tiếp tục — các truyện/chương đã tải sẽ không tải lại.[/]")
     except Exception as e:
         console.print(f"[red]Lỗi: {e}[/]")
 
@@ -434,6 +597,72 @@ def _action_settings() -> None:
     _crawler._save_config(output, delay, fmts, domain, workers, split_mode)
     _fetcher.set_base_url(domain)
     console.print("[green]✓ Đã lưu cài đặt.[/]")
+    input("\nNhấn Enter để tiếp tục...")
+
+
+# ─── CLI paste ───────────────────────────────────────────────────────────────
+
+def _action_run_cli() -> None:
+    """Dán một câu lệnh CLI vào để chạy trực tiếp."""
+    import re, shlex
+
+    console.print(Panel(
+        "[dim]Dán câu lệnh CLI vào đây. Ví dụ:\n"
+        "  [cyan]--url https://docln.sbs/truyen/123-ten-truyen --format epub docx[/]\n"
+        "  [cyan]--urls https://... https://... --output D:\\\\Truyen[/]\n"
+        "  [cyan]--url-file D:\\\\urls.txt --format epub[/]\n\n"
+        "Phần [cyan]py crawler.py[/] ở đầu có thể bỏ hoặc giữ đều được.[/]",
+        title="⌨️  Chạy từ lệnh CLI",
+        border_style="cyan",
+    ))
+
+    cmd_str = questionary.text(
+        "Lệnh:",
+        style=_MENU_STYLE,
+        validate=lambda v: True if v.strip() else "Cần nhập lệnh",
+    ).ask()
+    if not cmd_str:
+        return
+    cmd_str = cmd_str.strip()
+
+    # Bỏ "py crawler.py", "python crawler.py", "python3 crawler.py" ở đầu
+    cmd_str = re.sub(r'^(python3?|py)\s+crawler\.py\s*', '', cmd_str, flags=re.IGNORECASE).strip()
+    if not cmd_str:
+        console.print("[yellow]Lệnh trống sau khi xử lý.[/]")
+        input("\nNhấn Enter để tiếp tục...")
+        return
+
+    try:
+        extra_args = shlex.split(cmd_str)
+    except ValueError as e:
+        console.print(f"[red]Lỗi parse lệnh: {e}[/]")
+        input("\nNhấn Enter để tiếp tục...")
+        return
+
+    # Preview
+    console.print(f"\n[dim]Sẽ chạy:[/] [cyan]py crawler.py {' '.join(extra_args)}[/]\n")
+
+    confirm = questionary.select(
+        "Xác nhận:",
+        choices=[
+            questionary.Choice("▶  Chạy ngay",  value="run"),
+            questionary.Choice("←  Quay lại",   value="back"),
+        ],
+        style=_MENU_STYLE,
+    ).ask()
+    if not confirm or confirm == "back":
+        return
+
+    old_argv = sys.argv[:]
+    sys.argv = ["crawler.py"] + extra_args
+    try:
+        _crawler.main()
+    except SystemExit as e:
+        if e.code and e.code != 0:
+            console.print(f"[red]Lệnh kết thúc với lỗi (code {e.code})[/]")
+    finally:
+        sys.argv = old_argv
+
     input("\nNhấn Enter để tiếp tục...")
 
 
@@ -517,8 +746,7 @@ def _action_rebuild() -> None:
     t.add_row("Delay",        f"{delay}s")
     console.print(Panel(t, title="Xác nhận rebuild", border_style="yellow"))
 
-    _ok = input("Bắt đầu rebuild? [Y/n]: ").strip().lower()
-    if _ok == "n":
+    if not _confirm_or_back("▶  Bắt đầu rebuild"):
         return
 
     # 5. Rebuild
@@ -546,8 +774,10 @@ def main() -> None:
             "Chọn chế độ:",
             choices=[
                 questionary.Choice("🔗  Crawl 1 truyện (URL)",              value="url"),
+                questionary.Choice("📋  Crawl nhiều URL (danh sách)",        value="batch_urls"),
                 questionary.Choice("📄  Crawl danh sách (nhiều trang)",      value="listing"),
                 questionary.Choice("🔄  Build lại format từ folder có sẵn",  value="rebuild"),
+                questionary.Choice("⌨️   Chạy từ lệnh CLI",                   value="run_cli"),
                 questionary.Choice("⚙️   Cài đặt",                            value="settings"),
                 questionary.Separator(),
                 questionary.Choice("❌  Thoát",                               value="exit"),
@@ -560,10 +790,14 @@ def main() -> None:
             break
         elif choice == "url":
             _action_crawl_url()
+        elif choice == "batch_urls":
+            _action_crawl_batch_urls()
         elif choice == "listing":
             _action_crawl_listing()
         elif choice == "rebuild":
             _action_rebuild()
+        elif choice == "run_cli":
+            _action_run_cli()
         elif choice == "settings":
             _action_settings()
 

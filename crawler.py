@@ -488,6 +488,51 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
         _teardown_novel_log(_novel_log_fh)
 
 
+# ─── Batch crawl nhiều URL ────────────────────────────────────────────────────
+
+def crawl_batch_urls(
+    urls: list[str],
+    fmts: list[str],
+    output_root: str,
+    delay: float,
+    volumes_spec: str | None = None,
+) -> dict:
+    """Crawl nhiều truyện từ danh sách URL. Trả về {"ok": [...], "fail": [...]}."""
+    ok_urls: list[str] = []
+    fail_urls: list[tuple[str, str]] = []
+    total = len(urls)
+
+    for idx, url in enumerate(urls, 1):
+        url = url.strip()
+        if not url or not url.startswith("http"):
+            logger.warning(f"[{idx}/{total}] Bỏ qua URL không hợp lệ: {url!r}")
+            fail_urls.append((url, "URL không hợp lệ"))
+            continue
+
+        logger.info(f"\n[{idx}/{total}] ▶ {url}")
+        try:
+            crawl_novel(url, fmts, output_root, delay, volumes_spec)
+            ok_urls.append(url)
+        except KeyboardInterrupt:
+            logger.warning("Đã dừng bởi người dùng.")
+            fail_urls.append((url, "Bị ngắt"))
+            break
+        except Exception as e:
+            logger.error(f"  ✗ Lỗi: {e}")
+            fail_urls.append((url, str(e)))
+
+    logger.info(
+        f"\n✅ Batch xong: {len(ok_urls)}/{total} thành công, "
+        f"{len(fail_urls)} thất bại."
+    )
+    if fail_urls:
+        logger.info("Danh sách URL lỗi:")
+        for u, err in fail_urls:
+            logger.info(f"  ✗ {u}  →  {err}")
+
+    return {"ok": ok_urls, "fail": fail_urls}
+
+
 # ─── Rebuild format từ folder có sẵn ─────────────────────────────────────────
 
 def rebuild_novel(novel_dir: Path, fmts: list[str], delay: float) -> None:
@@ -640,9 +685,21 @@ Examples:
   python crawler.py --page 1 --page-end 5 --format epub
   python crawler.py --page 1 --page-end auto
   python crawler.py --page 1 --page-end auto --list-url "https://docln.sbs/the-loai/mystery?hoanthanh=1"
+  python crawler.py --urls https://docln.sbs/truyen/123-tieu-de https://docln.sbs/truyen/456-tieu-de
+  python crawler.py --url-file my_urls.txt
+  python crawler.py --url-file my_urls.txt --format epub docx
+  python crawler.py --url-file "https://raw.githubusercontent.com/user/repo/main/urls.txt"
         """,
     )
     parser.add_argument("--url", help="URL trang truyện cụ thể")
+    parser.add_argument(
+        "--urls", nargs="+", metavar="URL",
+        help="Danh sách URL truyện cách nhau bằng dấu cách",
+    )
+    parser.add_argument(
+        "--url-file", metavar="FILE_OR_URL",
+        help="File text local hoặc HTTP URL tới file .txt online chứa danh sách URL, mỗi dòng 1 URL (# để comment)",
+    )
     parser.add_argument("--page", type=int, help="Trang bắt đầu trong /danh-sach")
     parser.add_argument("--page-end", default="auto",
                         help="Trang kết thúc (số hoặc 'auto' để hết). Mặc định: auto")
@@ -662,7 +719,7 @@ Examples:
 
     args = parser.parse_args()
 
-    if not args.url and not args.page:
+    if not args.url and not args.urls and not args.url_file and not args.page:
         parser.print_help()
         sys.exit(1)
 
@@ -697,6 +754,34 @@ Examples:
 
     if args.url:
         crawl_novel(args.url, fmts, args.output, args.delay, args.volumes)
+    elif args.urls:
+        crawl_batch_urls(args.urls, fmts, args.output, args.delay, args.volumes)
+    elif args.url_file:
+        src = args.url_file.strip()
+        if src.startswith("http"):
+            import urllib.request
+            try:
+                with urllib.request.urlopen(src, timeout=15) as resp:
+                    raw = resp.read().decode("utf-8")
+            except Exception as e:
+                logger.error(f"Không tải được file từ URL: {e}")
+                sys.exit(1)
+            lines = raw.splitlines()
+        else:
+            url_file_path = Path(src)
+            if not url_file_path.is_file():
+                logger.error(f"File không tồn tại: {src}")
+                sys.exit(1)
+            lines = url_file_path.read_text(encoding="utf-8").splitlines()
+        batch_urls = [
+            ln.strip() for ln in lines
+            if ln.strip() and not ln.strip().startswith("#")
+        ]
+        if not batch_urls:
+            logger.error("File URL rỗng hoặc không có URL hợp lệ.")
+            sys.exit(1)
+        logger.info(f"Đã đọc {len(batch_urls)} URL từ {src}")
+        crawl_batch_urls(batch_urls, fmts, args.output, args.delay, args.volumes)
     elif args.page:
         page_end = args.page_end
         if page_end != "auto":

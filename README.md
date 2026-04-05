@@ -4,9 +4,31 @@ Công cụ tải truyện từ [docln.sbs](https://docln.sbs) và xuất ra file
 
 ---
 
+## Bắt đầu nhanh (dành cho người mới)
+
+**Bước 1 — Cài đặt:**
+```bash
+py -m pip install -r requirements.txt
+playwright install chromium
+```
+
+**Bước 2 — Chạy menu:**
+```bash
+py ui.py
+```
+
+**Bước 3 — Tải truyện:**
+- Chọn `🔗 Crawl 1 truyện (URL)` → dán link truyện → chọn tập → Enter
+- File EPUB sẽ xuất ra thư mục `./output/`
+
+> **Không biết dùng CLI?** Dùng menu `ui.py` — điều hướng bằng phím mũi tên, **ESC** hoặc chọn `← Quay lại` để về menu trước.
+
+---
+
 ## Tính năng
 
 - Tải truyện theo URL hoặc quét danh sách nhiều trang
+- **Tải nhiều truyện** từ danh sách URL (nhập tay, file `.txt`, hoặc link file online)
 - Xuất **EPUB** (mặc định, đọc trên Kindle, máy đọc sách, app đọc)
 - Xuất **DOCX** (Word, chỉnh sửa được)
 - Xuất **PDF** (font tiếng Việt Noto Serif, tự tải nếu thiếu)
@@ -18,6 +40,7 @@ Công cụ tải truyện từ [docln.sbs](https://docln.sbs) và xuất ra file
 - **Chapter content cache** — lưu nội dung chương xuống disk, re-run không cần fetch lại HTML
 - **Retry loop với backoff** — tự động thử lại chương lỗi trước khi build file
 - **Rebuild format từ folder có sẵn** — scan folder, chọn truyện, build thêm format mới không cần crawl lại
+- **Dán lệnh CLI vào menu** — chạy lệnh CLI trực tiếp từ giao diện menu
 - Tên folder tự động có tag `[Truyện dịch]` hoặc `[AI dịch]`
 - Chia folder theo tình trạng: `Truyện đã hoàn thành` / `Truyện chưa hoàn thành`
 - Ước tính dung lượng output trước khi crawl
@@ -25,7 +48,7 @@ Công cụ tải truyện từ [docln.sbs](https://docln.sbs) và xuất ra file
 - Per-novel `crawl_log.txt` ghi lại toàn bộ lỗi
 - Cấu hình domain linh hoạt (khi site đổi domain)
 - Lưu cài đặt tự động vào `crawl_config.json`
-- Menu UI tương tác (arrow-key) hoặc CLI truyền thống
+- Menu UI tương tác (arrow-key) với nút **← Quay lại** và thông báo **tạm dừng**
 
 ---
 
@@ -59,17 +82,60 @@ Hiện menu chọn chế độ bằng phím mũi tên:
 │  Output  D:\Truyen              │
 │  Format  EPUB                   │
 │  Delay   1.5s                   │
-│  Folder  Split HT/CHT           │
+│  Folder  Single                 │
 ╰─────────────────────────────────╯
 
 ? Chọn chế độ:
   ❯ 🔗  Crawl 1 truyện (URL)
+    📋  Crawl nhiều URL (danh sách)
     📄  Crawl danh sách (nhiều trang)
     🔄  Build lại format từ folder có sẵn
+    ⌨️   Chạy từ lệnh CLI
     ⚙️   Cài đặt
     ────
     ❌  Thoát
 ```
+
+**Điều hướng:**
+- `↑ ↓` — di chuyển
+- `Enter` — chọn
+- `ESC` hoặc chọn `← Quay lại` — về menu trước
+- `Ctrl+C` trong lúc crawl — tạm dừng (tiến trình tự lưu, chạy lại để tiếp tục)
+
+#### Tải 1 truyện
+
+1. Chọn `🔗 Crawl 1 truyện (URL)`
+2. Dán link truyện (vd: `https://docln.sbs/truyen/123-ten-truyen`)
+3. Chọn tập muốn tải (Space bỏ chọn, Enter xác nhận)
+4. Chọn format, thư mục lưu
+5. Chọn `▶ Bắt đầu crawl`
+
+#### Tải nhiều truyện (danh sách URL)
+
+1. Chọn `📋 Crawl nhiều URL (danh sách)`
+2. Chọn cách nhập:
+   - **Nhập tay** — gõ/dán từng URL, Enter sau mỗi URL, dòng trống để kết thúc
+   - **File local** — nhập đường dẫn file `.txt` (mỗi dòng 1 URL, `#` để comment)
+   - **Link online** — dán link tới file `.txt` trên mạng (GitHub raw, Pastebin...)
+3. Chọn format, xác nhận → crawl tuần tự từng truyện
+
+Ví dụ file `urls.txt`:
+```
+# Truyện yêu thích
+https://docln.sbs/truyen/123-truyen-a
+https://docln.sbs/truyen/456-truyen-b
+
+# Đang theo dõi
+https://docln.sbs/truyen/789-truyen-c
+```
+
+#### Dán lệnh CLI vào menu
+
+1. Chọn `⌨️ Chạy từ lệnh CLI`
+2. Dán lệnh vào (phần `py crawler.py` có thể bỏ hoặc giữ)
+3. Xác nhận → chạy
+
+---
 
 ### CLI
 
@@ -86,11 +152,23 @@ py crawler.py --url https://docln.sbs/truyen/123-ten-truyen --volumes "1,3-5"
 # Chỉ định thư mục lưu
 py crawler.py --url https://docln.sbs/truyen/123-ten-truyen --output "D:\Truyen"
 
-# Crawl nhiều truyện từ trang danh sách (trang 1 đến 5)
+# Crawl nhiều URL cùng lúc (space-separated)
+py crawler.py --urls https://docln.sbs/truyen/123 https://docln.sbs/truyen/456
+
+# Crawl từ file danh sách URL (local)
+py crawler.py --url-file urls.txt
+
+# Crawl từ file danh sách URL (link online)
+py crawler.py --url-file "https://raw.githubusercontent.com/user/repo/main/urls.txt"
+
+# Crawl danh sách trang 1–5
 py crawler.py --page 1 --page-end 5
 
 # Crawl danh sách đến hết
 py crawler.py --page 1 --page-end auto
+
+# Crawl theo thể loại/lọc
+py crawler.py --page 1 --page-end auto --list-url "https://docln.sbs/the-loai/mystery?hoanthanh=1"
 ```
 
 ---
@@ -100,6 +178,8 @@ py crawler.py --page 1 --page-end auto
 | Tham số | Mặc định | Mô tả |
 |---------|---------|-------|
 | `--url` | — | URL trang truyện cụ thể |
+| `--urls` | — | Nhiều URL truyện cách nhau bằng dấu cách |
+| `--url-file` | — | File `.txt` local hoặc link online chứa danh sách URL (mỗi dòng 1 URL, `#` để comment) |
 | `--page` | — | Trang bắt đầu trong `/danh-sach` |
 | `--page-end` | `auto` | Trang kết thúc (số hoặc `auto`) |
 | `--format` | `epub` | Format output: `epub` `docx` `pdf` `images` (chọn nhiều) |
@@ -107,6 +187,20 @@ py crawler.py --page 1 --page-end auto
 | `--delay` | `1.5` | Delay giữa request (giây) |
 | `--output` | `./output` | Thư mục lưu file |
 | `--domain` | `docln.sbs` | Domain site (khi site đổi domain mới) |
+| `--list-url` | `/danh-sach` | URL danh sách tùy chỉnh (lọc thể loại, tag...) |
+
+---
+
+## Tạm dừng và tiếp tục
+
+Nhấn **Ctrl+C** bất kỳ lúc nào để tạm dừng. Tool sẽ hiện:
+
+```
+⏸ Đã tạm dừng!
+Tiến trình đã lưu tự động. Chạy lại cùng URL để tiếp tục — các chương đã tải sẽ không tải lại.
+```
+
+Chạy lại cùng lệnh/URL là tool sẽ tự bỏ qua chương đã có và tiếp tục từ chỗ dừng.
 
 ---
 
