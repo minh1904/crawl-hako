@@ -56,10 +56,11 @@ FORMAT_CHOICES = [
 
 def _print_banner() -> None:
     cfg = _crawler._load_config()
-    domain  = cfg.get("domain",  "docln.sbs")
-    delay   = cfg.get("delay",   1.5)
-    output  = cfg.get("output",  "./output")
-    fmts    = cfg.get("format",  ["epub"])
+    domain     = cfg.get("domain",     "docln.sbs")
+    delay      = cfg.get("delay",      1.5)
+    output     = cfg.get("output",     "./output")
+    fmts       = cfg.get("format",     ["epub"])
+    split_mode = cfg.get("split_mode", False)
 
     t = Table(box=None, show_header=False, padding=(0, 1))
     t.add_column(style="dim")
@@ -68,6 +69,7 @@ def _print_banner() -> None:
     t.add_row("Output",  f"[green]{output}[/]")
     t.add_row("Format",  f"[yellow]{', '.join(f.upper() for f in fmts)}[/]")
     t.add_row("Delay",   f"{delay}s")
+    t.add_row("Folder",  "[magenta]Split HT/CHT[/]" if split_mode else "Single")
 
     console.print(Panel(t, title="[bold cyan]Crawl Hako[/]", border_style="cyan", width=52))
 
@@ -81,6 +83,19 @@ def _ask_output(default: str) -> str:
         style=_MENU_STYLE,
     ).ask()
     return (val or default).strip()
+
+
+def _ask_split_mode(default: bool = False) -> bool:
+    ans = questionary.select(
+        "Cấu trúc folder output:",
+        choices=[
+            questionary.Choice("📁  1 folder chung (không chia)", value=False),
+            questionary.Choice("📂  Chia 2 folder: Đã hoàn thành / Chưa hoàn thành", value=True),
+        ],
+        default=True if default else False,
+        style=_MENU_STYLE,
+    ).ask()
+    return bool(ans)
 
 
 def _ask_formats(defaults: list[str]) -> list[str]:
@@ -141,9 +156,12 @@ def _action_crawl_url() -> None:
     t = Table(box=None, show_header=False, padding=(0, 1))
     t.add_column(style="dim")
     t.add_column()
-    t.add_row("Tên",    f"[bold]{novel_info.get('title', '?')}[/]")
-    t.add_row("Tác giả", novel_info.get("author", "?"))
-    t.add_row("Số tập", str(len(volumes)))
+    t.add_row("Tên",       f"[bold]{novel_info.get('title', '?')}[/]")
+    t.add_row("Tác giả",   novel_info.get("author", "?"))
+    t.add_row("Dịch giả",  novel_info.get("translator", "?") or "?")
+    t.add_row("Loại dịch", "[red]Máy dịch[/]" if novel_info.get("translation_type") == "machine" else "[green]Người dịch[/]")
+    t.add_row("Tình trạng", novel_info.get("status", "?") or "?")
+    t.add_row("Số tập",    str(len(volumes)))
     console.print(Panel(t, border_style="cyan"))
 
     # Checkbox chọn tập
@@ -177,7 +195,8 @@ def _action_crawl_url() -> None:
     if not fmts:
         console.print("[red]Chưa chọn format nào.[/]")
         return
-    output = _ask_output(cfg.get("output", "./output"))
+    output     = _ask_output(cfg.get("output", "./output"))
+    split_mode = _ask_split_mode(cfg.get("split_mode", False))
 
     # ── Ước tính dung lượng (tuỳ chọn) ──────────────────────────────────────
     est = None
@@ -237,7 +256,8 @@ def _action_crawl_url() -> None:
 
     from pathlib import Path
     Path(output).mkdir(parents=True, exist_ok=True)
-    _crawler._save_config(output, delay, fmts, cfg.get("domain", "docln.sbs"))
+    _crawler._save_config(output, delay, fmts, cfg.get("domain", "docln.sbs"),
+                          cfg.get("workers"), split_mode)
 
     console.print()
     try:
@@ -295,9 +315,10 @@ def _action_crawl_listing() -> None:
     if not page_end:
         return
 
-    fmts   = _ask_formats(cfg.get("format", ["epub"]))
-    output = _ask_output(cfg.get("output", "./output"))
-    delay  = cfg.get("delay", 1.5)
+    fmts       = _ask_formats(cfg.get("format", ["epub"]))
+    output     = _ask_output(cfg.get("output", "./output"))
+    split_mode = _ask_split_mode(cfg.get("split_mode", False))
+    delay      = cfg.get("delay", 1.5)
 
     # ── Ước tính dung lượng (chỉ khi biết số trang kết thúc) ────────────────
     est_listing = None
@@ -360,7 +381,8 @@ def _action_crawl_listing() -> None:
 
     from pathlib import Path
     Path(output).mkdir(parents=True, exist_ok=True)
-    _crawler._save_config(output, delay, fmts, cfg.get("domain", "docln.sbs"))
+    _crawler._save_config(output, delay, fmts, cfg.get("domain", "docln.sbs"),
+                          cfg.get("workers"), split_mode)
     _fetcher.set_base_url(cfg.get("domain", "docln.sbs"))
 
     page_end_val = "auto" if page_end == "auto" else int(page_end)
@@ -407,7 +429,9 @@ def _action_settings() -> None:
     ).ask() or "5"
     workers = {"chapters": int(chap_w), "images": int(img_w)}
 
-    _crawler._save_config(output, delay, fmts, domain, workers)
+    split_mode = _ask_split_mode(cfg.get("split_mode", False))
+
+    _crawler._save_config(output, delay, fmts, domain, workers, split_mode)
     _fetcher.set_base_url(domain)
     console.print("[green]✓ Đã lưu cài đặt.[/]")
     input("\nNhấn Enter để tiếp tục...")

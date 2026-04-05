@@ -65,13 +65,14 @@ def _load_config() -> dict:
 
 
 def _save_config(output: str, delay: float, fmts: list[str], domain: str = "",
-                 workers: dict = None) -> None:
+                 workers: dict = None, split_mode: bool = False) -> None:
     data = {
         "output": output,
         "delay": delay,
         "format": fmts,
         "domain": domain or "docln.sbs",
         "workers": workers or _CONFIG_DEFAULTS["workers"],
+        "split_mode": split_mode,
     }
     try:
         CONFIG_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -263,7 +264,8 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
     logger.info(f"  Tác giả:   {novel_info.get('author', '?')}")
 
     # 2. Tạo thư mục output
-    novel_dir = _storage.get_novel_dir(output_root, title)
+    split_mode = _load_config().get("split_mode", False)
+    novel_dir = _storage.get_novel_dir(output_root, title, novel_info, split_mode)
     _novel_log_fh = _setup_novel_log(novel_dir)
     _storage.log(novel_dir, f"Bắt đầu crawl: {novel_url}")
     _storage.save_info(novel_dir, novel_info)
@@ -303,13 +305,20 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
             chapters = volume.get("chapters", [])
             logger.info(f"\n  [{vol_num}/{len(volumes)}] {vol_title} — {len(chapters)} chương")
 
-            # Kiểm tra: bỏ qua tập nếu TẤT CẢ formats đã có
+            # Kiểm tra: bỏ qua tập nếu TẤT CẢ formats đã có VÀ không có chương "error"
             missing_fmts = [f for f in fmts if not _storage.volume_file_exists(novel_dir, vol_title, title, f)]
-            if not missing_fmts:
+            vol_chapter_urls = {chap["url"] for chap in chapters}
+            has_error_chapters = any(
+                index.get(url) == "error" for url in vol_chapter_urls
+            )
+            if not missing_fmts and not has_error_chapters:
                 logger.info(f"  ✓ Đã có đủ {len(fmts)} file, bỏ qua tập này.")
                 continue
-
-            if len(missing_fmts) < len(fmts):
+            if not missing_fmts and has_error_chapters:
+                # File tồn tại nhưng có chương lỗi → rebuild để vá placeholder
+                missing_fmts = fmts
+                logger.info(f"  ↻ Có chương lỗi chưa vá — rebuild lại toàn bộ format.")
+            elif len(missing_fmts) < len(fmts):
                 logger.info(f"  ↪ Thiếu: {', '.join(missing_fmts)} — sẽ build thêm.")
 
             # Tải ảnh bìa tập (nếu có)
@@ -337,10 +346,42 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
             pbar = tqdm(total=len(chapters), desc=f"  {vol_title[:35]}",
                         unit="chap", dynamic_ncols=True, leave=True)
 
+            # ── Chapter-level resume: phân loại done (từ cache) vs cần fetch ──
+            to_fetch   = []   # error / chưa có / cache mất → fetch mới
+            to_restore = []   # done + có cache trên disk → load lại
+
+            for i, chap in enumerate(chapters):
+                if index.get(chap["url"]) == "done":
+                    cached = _storage.load_chapter_cache(novel_dir, i)
+                    if cached is not None:
+                        to_restore.append((i, chap, cached))
+                        continue
+                to_fetch.append((i, chap))
+
+            # Restore chapters từ cache + re-download ảnh cho builder
+            if to_restore:
+                logger.info(f"  ↩ {len(to_restore)} chương load từ cache, "
+                            f"{len(to_fetch)} chương cần fetch.")
+                for i, chap, cached_data in to_restore:
+                    chapters_data[i] = cached_data
+                    img_urls = [e["url"] for e in cached_data.get("elements", [])
+                                if e["type"] == "image"]
+                    if img_urls:
+                        imgs = _fetcher.download_images_batch(
+                            img_urls, delay=max(0.3, delay / 3),
+                            page_url=chap["url"], max_workers=img_workers,
+                        )
+                        with _cache_lock:
+                            image_cache.update(imgs)
+
+            _consecutive_429 = 0   # đếm 429 liên tiếp để giảm workers động
+
+            pbar.reset(total=len(to_fetch))
+
             with ThreadPoolExecutor(max_workers=chap_workers) as executor:
                 futures = {
                     executor.submit(_fetch_chapter, i, chap, delay, img_workers): i
-                    for i, chap in enumerate(chapters)
+                    for i, chap in to_fetch
                 }
                 for fut in as_completed(futures):
                     i          = futures[fut]
@@ -351,6 +392,13 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
                     idx, chap_data, new_imgs, failed, err = fut.result()
 
                     if err:
+                        if "429" in str(err):
+                            _consecutive_429 += 1
+                            if _consecutive_429 >= 2 and chap_workers > 1:
+                                chap_workers = max(1, chap_workers // 2)
+                                logger.warning(f"  ⚡ 429 liên tiếp — giảm workers → {chap_workers}")
+                        else:
+                            _consecutive_429 = 0
                         with _index_lock:
                             index[chap_url] = "error"
                             _storage.save_index(novel_dir, index)
@@ -360,6 +408,7 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
                             {"type": "text", "content": f"[Lỗi tải chương này: {err}]"}
                         ]}
                     else:
+                        _consecutive_429 = 0
                         with _cache_lock:
                             for img_url, img_data in new_imgs.items():
                                 if img_url not in image_cache:
@@ -372,6 +421,7 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
                             index[chap_url] = "done"
                             _storage.save_index(novel_dir, index)
                         chapters_data[i] = chap_data
+                        _storage.save_chapter_cache(novel_dir, i, chap_data)
 
                     pbar.update(1)
 
@@ -380,7 +430,40 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
             if vol_img_ok + vol_img_fail > 0:
                 _storage.log(novel_dir, f"  Ảnh {vol_title}: OK={vol_img_ok}, FAIL={vol_img_fail}")
 
-            # 7. Build từng format còn thiếu
+            # 7. Retry các chương lỗi trước khi build (tuần tự + backoff)
+            _MAX_CHAP_RETRIES = 3
+            _RETRY_BASE_WAIT  = 60  # giây
+
+            error_indices = [
+                i for i, chap in enumerate(chapters)
+                if index.get(chap["url"]) == "error"
+            ]
+            for retry_round in range(_MAX_CHAP_RETRIES):
+                if not error_indices:
+                    break
+                wait = _RETRY_BASE_WAIT * (2 ** retry_round)
+                logger.info(f"  ↻ Retry {len(error_indices)} chương lỗi "
+                            f"(lần {retry_round + 1}/{_MAX_CHAP_RETRIES}) — chờ {wait}s...")
+                time.sleep(wait)
+                still_error = []
+                for i in error_indices:
+                    chap = chapters[i]
+                    _, chap_data, new_imgs, _, err = _fetch_chapter(i, chap, delay, img_workers)
+                    if err:
+                        logger.warning(f"    ✗ Retry thất bại: {chap['title']} — {err}")
+                        still_error.append(i)
+                    else:
+                        chapters_data[i] = chap_data        # gán lại vào đúng slot
+                        image_cache.update(new_imgs)         # ảnh vào cache cho builder
+                        index[chap["url"]] = "done"
+                        _storage.save_index(novel_dir, index)
+                        logger.info(f"    ✓ Retry thành công: {chap['title']}")
+                error_indices = still_error
+            if error_indices:
+                logger.warning(f"  ⚠ Còn {len(error_indices)} chương lỗi sau {_MAX_CHAP_RETRIES} lần retry — "
+                               f"sẽ build với placeholder.")
+
+            # 8. Build từng format còn thiếu
             if not chapters_data:
                 logger.warning(f"  Tập '{vol_title}' không có chương nào, bỏ qua build.")
                 continue

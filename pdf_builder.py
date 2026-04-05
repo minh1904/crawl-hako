@@ -201,6 +201,7 @@ def _add_pdf_cover(story, novel_info, volume_title, cover_bytes, styles):
         story.append(Paragraph(volume_title, styles["SubTitle"]))
     if author:
         story.append(Paragraph(f"Tác giả: {author}", styles["SubTitle"]))
+
     story.append(PageBreak())
 
 

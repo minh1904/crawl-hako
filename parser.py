@@ -19,6 +19,8 @@ def parse_novel_info(soup: BeautifulSoup) -> dict:
         "title": "",
         "author": "",
         "status": "",
+        "translator": "",
+        "translation_type": "human",
         "description": "",
         "genres": [],
         "cover_url": "",
@@ -54,6 +56,9 @@ def parse_novel_info(soup: BeautifulSoup) -> dict:
             info["author"] = a.get_text(strip=True) if a else value_el.get_text(strip=True)
         elif "Tình trạng" in name:
             info["status"] = value_el.get_text(strip=True)
+        elif any(k in name for k in ("Nhóm dịch", "Người dịch", "Dịch giả", "Nhóm")):
+            a = value_el.find("a")
+            info["translator"] = a.get_text(strip=True) if a else value_el.get_text(strip=True)
 
     # Mô tả
     summary = soup.select_one(".summary-content")
@@ -69,6 +74,11 @@ def parse_novel_info(soup: BeautifulSoup) -> dict:
             genres.append(g)
             seen_genres.add(g)
     info["genres"] = genres
+
+    # Detect machine translation từ genres
+    _machine_kw = {"machine translation", "mtl", "máy dịch", "machine-translation"}
+    if any(g.lower() in _machine_kw for g in genres):
+        info["translation_type"] = "machine"
 
     return info
 

@@ -17,6 +17,31 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://docln.sbs"
 
+# ── Global 429 throttle ───────────────────────────────────────────────────────
+# Khi bất kỳ thread nào nhận 429, set _rate_limit_until = thời điểm hết hạn.
+# Các thread khác sẽ kiểm tra và sleep trước khi gửi request tiếp theo.
+_rate_limit_until: float = 0.0
+_rate_limit_lock = threading.Lock()
+
+
+def _wait_if_rate_limited() -> None:
+    """Block cho đến khi hết thời gian rate-limit toàn cục."""
+    global _rate_limit_until
+    with _rate_limit_lock:
+        wait = _rate_limit_until - time.monotonic()
+    if wait > 0:
+        logger.info(f"[429 throttle] Đang chờ {wait:.0f}s do rate-limit toàn cục...")
+        time.sleep(wait)
+
+
+def _set_rate_limit(seconds: int) -> None:
+    """Cập nhật thời điểm hết rate-limit toàn cục."""
+    global _rate_limit_until
+    with _rate_limit_lock:
+        new_until = time.monotonic() + seconds
+        if new_until > _rate_limit_until:
+            _rate_limit_until = new_until
+
 
 def set_base_url(domain: str) -> None:
     """Đổi domain runtime — dùng khi site chuyển domain mới."""
@@ -54,13 +79,23 @@ def get_scraper() -> cloudscraper.CloudScraper:
 
 
 def fetch(url: str, delay: float = 1.5, retries: int = 3) -> BeautifulSoup:
-    """Fetch URL và trả về BeautifulSoup. Retry tối đa `retries` lần."""
+    """Fetch URL và trả về BeautifulSoup. Retry tối đa `retries` lần.
+    429 Too Many Requests được xử lý riêng: đọc Retry-After và chờ đủ lâu.
+    """
     scraper = get_scraper()
     last_error = None
     for attempt in range(1, retries + 1):
         try:
+            _wait_if_rate_limited()
             time.sleep(delay)
             resp = scraper.get(url, timeout=20)
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("Retry-After", 60))
+                wait = max(retry_after, 60)
+                logger.warning(f"[429] Rate limited — set throttle {wait}s ({attempt}/{retries}): {url}")
+                _set_rate_limit(wait)
+                last_error = "HTTP 429 Too Many Requests"
+                continue
             resp.raise_for_status()
             resp.encoding = "utf-8"
             return BeautifulSoup(resp.text, "lxml")
@@ -107,8 +142,16 @@ def download_image(url: str, delay: float = 1.0, retries: int = 2,
     # ── Strategy 1: cloudscraper ──────────────────────────────────────────────
     for attempt in range(1, retries + 1):
         try:
+            _wait_if_rate_limited()
             time.sleep(delay)
             resp = scraper.get(url, timeout=15, headers={"Referer": referer, "Accept": _IMG_ACCEPT})
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("Retry-After", 60))
+                wait = max(retry_after, 60)
+                logger.warning(f"[429] Rate limited (ảnh) — set throttle {wait}s: {url}")
+                _set_rate_limit(wait)
+                last_error = "HTTP 429"
+                continue
             if resp.status_code == 403:
                 # CDN block (hotlink protection, Cloudflare) — retry cùng Referer vô ích
                 logger.warning(f"403 Forbidden (CDN block) — bỏ qua retry: {url}")
