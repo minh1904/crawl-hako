@@ -437,6 +437,103 @@ def _action_settings() -> None:
     input("\nNhấn Enter để tiếp tục...")
 
 
+# ─── Rebuild ─────────────────────────────────────────────────────────────────
+
+def _scan_novel_dirs(root: str) -> list:
+    """Tìm tất cả thư mục có info.json trong root (depth tối đa 2).
+    Xử lý cả cấu trúc split (Truyện đã hoàn thành/...) và single.
+    """
+    from pathlib import Path
+    root_path = Path(root)
+    if not root_path.is_dir():
+        return []
+    found = []
+    for p in sorted(root_path.iterdir()):
+        if not p.is_dir():
+            continue
+        if (p / "info.json").exists():
+            found.append(p)
+        else:
+            for sub in sorted(p.iterdir()):
+                if sub.is_dir() and (sub / "info.json").exists():
+                    found.append(sub)
+    return found
+
+
+def _action_rebuild() -> None:
+    from pathlib import Path
+    cfg   = _crawler._load_config()
+    delay = cfg.get("delay", 1.5)
+
+    # 1. Chọn folder gốc
+    root = _ask_output(cfg.get("output", "./output"))
+
+    # 2. Scan tìm truyện
+    console.print("[dim]Đang scan folder...[/]")
+    novel_dirs = _scan_novel_dirs(root)
+    if not novel_dirs:
+        console.print("[yellow]Không tìm thấy truyện nào (cần có info.json).[/]")
+        input("\nNhấn Enter để tiếp tục...")
+        return
+
+    # Tạo choices với tên truyện + các format hiện có
+    def _existing_fmts(d: Path) -> str:
+        fmts = []
+        for fmt in ["epub", "docx", "pdf", "images"]:
+            fmt_dir = d / fmt.upper()
+            if fmt_dir.is_dir() and any(fmt_dir.iterdir()):
+                fmts.append(fmt.upper())
+        return ", ".join(fmts) if fmts else "chưa có"
+
+    choices = [
+        questionary.Choice(
+            f"{d.name}  [dim]({_existing_fmts(d)})[/dim]",
+            value=d,
+        )
+        for d in novel_dirs
+    ]
+
+    selected_dirs = questionary.checkbox(
+        "Chọn truyện muốn build thêm format:",
+        choices=choices,
+        style=_MENU_STYLE,
+    ).ask()
+    if not selected_dirs:
+        return
+
+    # 3. Chọn format muốn build
+    fmts = _ask_formats(cfg.get("format", ["epub"]))
+    if not fmts:
+        console.print("[red]Chưa chọn format nào.[/]")
+        return
+
+    # 4. Xác nhận
+    console.print()
+    t = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
+    t.add_column(style="dim")
+    t.add_column()
+    t.add_row("Số truyện", str(len(selected_dirs)))
+    t.add_row("Format build", ", ".join(f.upper() for f in fmts))
+    t.add_row("Delay",        f"{delay}s")
+    console.print(Panel(t, title="Xác nhận rebuild", border_style="yellow"))
+
+    _ok = input("Bắt đầu rebuild? [Y/n]: ").strip().lower()
+    if _ok == "n":
+        return
+
+    # 5. Rebuild
+    _fetcher.set_base_url(cfg.get("domain", "docln.sbs"))
+    console.print()
+    for d in selected_dirs:
+        console.print(f"[cyan]▶ {d.name}[/]")
+        try:
+            _crawler.rebuild_novel(d, fmts, delay)
+        except Exception as e:
+            console.print(f"[red]  ✗ Lỗi: {e}[/]")
+
+    input("\nNhấn Enter để tiếp tục...")
+
+
 # ─── Main loop ────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -448,11 +545,12 @@ def main() -> None:
         choice = questionary.select(
             "Chọn chế độ:",
             choices=[
-                questionary.Choice("🔗  Crawl 1 truyện (URL)",         value="url"),
-                questionary.Choice("📄  Crawl danh sách (nhiều trang)", value="listing"),
-                questionary.Choice("⚙️   Cài đặt",                       value="settings"),
+                questionary.Choice("🔗  Crawl 1 truyện (URL)",              value="url"),
+                questionary.Choice("📄  Crawl danh sách (nhiều trang)",      value="listing"),
+                questionary.Choice("🔄  Build lại format từ folder có sẵn",  value="rebuild"),
+                questionary.Choice("⚙️   Cài đặt",                            value="settings"),
                 questionary.Separator(),
-                questionary.Choice("❌  Thoát",                          value="exit"),
+                questionary.Choice("❌  Thoát",                               value="exit"),
             ],
             style=_MENU_STYLE,
         ).ask()
@@ -464,6 +562,8 @@ def main() -> None:
             _action_crawl_url()
         elif choice == "listing":
             _action_crawl_listing()
+        elif choice == "rebuild":
+            _action_rebuild()
         elif choice == "settings":
             _action_settings()
 

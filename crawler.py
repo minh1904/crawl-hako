@@ -287,6 +287,7 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
             _storage.log(novel_dir, "WARNING: Không tìm thấy tập nào")
             return
 
+        _storage.save_volumes(novel_dir, volumes)
         logger.info(f"  Tổng số tập: {len(volumes)}")
         logger.info(f"  Formats:    {', '.join(fmts)}")
 
@@ -352,7 +353,7 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
 
             for i, chap in enumerate(chapters):
                 if index.get(chap["url"]) == "done":
-                    cached = _storage.load_chapter_cache(novel_dir, i)
+                    cached = _storage.load_chapter_cache(novel_dir, vol_num, i)
                     if cached is not None:
                         to_restore.append((i, chap, cached))
                         continue
@@ -421,7 +422,7 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
                             index[chap_url] = "done"
                             _storage.save_index(novel_dir, index)
                         chapters_data[i] = chap_data
-                        _storage.save_chapter_cache(novel_dir, i, chap_data)
+                        _storage.save_chapter_cache(novel_dir, vol_num, i, chap_data)
 
                     pbar.update(1)
 
@@ -485,6 +486,91 @@ def crawl_novel(novel_url: str, fmts: list[str], output_root: str, delay: float,
 
     finally:
         _teardown_novel_log(_novel_log_fh)
+
+
+# ─── Rebuild format từ folder có sẵn ─────────────────────────────────────────
+
+def rebuild_novel(novel_dir: Path, fmts: list[str], delay: float) -> None:
+    """Build thêm format mới từ folder đã crawl, không fetch lại HTML chương.
+
+    - Đọc info.json, cover.jpg, volumes.json từ disk
+    - Nếu không có volumes.json → fetch 1 request từ novel URL
+    - Với mỗi tập: load chapters_cache → re-download ảnh → build format thiếu
+    """
+    logger.info(f"▶ Rebuild: {novel_dir.name}")
+
+    # 1. Load metadata
+    info_file = novel_dir / "info.json"
+    if not info_file.exists():
+        raise RuntimeError(f"Không tìm thấy info.json trong {novel_dir}")
+    novel_info = json.loads(info_file.read_text(encoding="utf-8"))
+    title = novel_info.get("title", "unknown")
+    cover_bytes = (novel_dir / "cover.jpg").read_bytes() if (novel_dir / "cover.jpg").exists() else None
+
+    # 2. Load volumes structure (fetch nếu chưa có)
+    volumes = _storage.load_volumes(novel_dir)
+    if not volumes:
+        novel_url = novel_info.get("url", "")
+        if not novel_url:
+            raise RuntimeError("Không có volumes.json và không có URL trong info.json")
+        logger.info("  volumes.json chưa có — fetch từ network...")
+        soup = _fetcher.fetch(novel_url, delay=delay)
+        volumes = _parser.parse_volume_list(soup)
+        _storage.save_volumes(novel_dir, volumes)
+
+    # 3. Build từng tập
+    for vol_num, volume in enumerate(volumes, 1):
+        vol_title = volume.get("volume_title") or f"Tập {vol_num}"
+        chapters  = volume.get("chapters", [])
+
+        missing_fmts = [f for f in fmts
+                        if not _storage.volume_file_exists(novel_dir, vol_title, title, f)]
+        if not missing_fmts:
+            logger.info(f"  ✓ {vol_title} đã có đủ format, bỏ qua.")
+            continue
+
+        logger.info(f"  [{vol_num}/{len(volumes)}] {vol_title} — build {', '.join(missing_fmts)}")
+
+        chapters_data: list[dict] = []
+        image_cache: dict[str, bytes] = {}
+
+        for i, chap in enumerate(chapters):
+            cached = _storage.load_chapter_cache(novel_dir, vol_num, i)
+            if cached is None:
+                logger.warning(f"    ⚠ Thiếu cache chương {i+1}/{len(chapters)} — dùng placeholder.")
+                chapters_data.append({
+                    "title": chap.get("title", f"Chương {i+1}"),
+                    "elements": [{"type": "text",
+                                  "content": "[Chưa có cache — chạy crawl lại để lấy nội dung]"}],
+                })
+                continue
+            chapters_data.append(cached)
+            img_urls = [e["url"] for e in cached.get("elements", []) if e["type"] == "image"]
+            if img_urls:
+                imgs = _fetcher.download_images_batch(
+                    img_urls, delay=max(0.3, delay / 3),
+                    page_url=chap.get("url", ""), max_workers=5,
+                )
+                image_cache.update(imgs)
+
+        # Volume cover
+        vol_cover_bytes = cover_bytes
+        vol_cover_url = volume.get("volume_cover_url", "")
+        if vol_cover_url:
+            tmp = _fetcher.download_image(vol_cover_url, delay=delay)
+            if tmp:
+                vol_cover_bytes = tmp
+
+        for fmt in missing_fmts:
+            out_path = _storage.volume_output_path(novel_dir, vol_title, title, fmt)
+            try:
+                BUILDERS[fmt](out_path, novel_info, vol_title, chapters_data,
+                              vol_cover_bytes, image_cache)
+                logger.info(f"  ✅ [{fmt.upper()}] {out_path.name}")
+            except Exception as e:
+                logger.error(f"  ✗ Lỗi build {fmt.upper()} '{out_path.name}': {e}")
+
+    logger.info(f"✅ Rebuild xong: {title}")
 
 
 # ─── Crawl theo trang danh sách ──────────────────────────────────────────────

@@ -87,18 +87,38 @@ def save_info(novel_dir: Path, info: dict) -> None:
     info_file.write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def save_chapter_cache(novel_dir: Path, chap_idx: int, chap_data: dict) -> None:
-    """Lưu content chương (title + elements) ra disk sau khi fetch thành công."""
+def save_chapter_cache(novel_dir: Path, vol_num: int, chap_idx: int, chap_data: dict) -> None:
+    """Lưu content chương (title + elements) ra disk sau khi fetch thành công.
+    File: chapters_cache/{vol_num}_{chap_idx}.json
+    """
     cache_dir = novel_dir / "chapters_cache"
     cache_dir.mkdir(exist_ok=True)
-    (cache_dir / f"{chap_idx}.json").write_text(
+    (cache_dir / f"{vol_num}_{chap_idx}.json").write_text(
         json.dumps(chap_data, ensure_ascii=False), encoding="utf-8"
     )
 
 
-def load_chapter_cache(novel_dir: Path, chap_idx: int) -> dict | None:
+def load_chapter_cache(novel_dir: Path, vol_num: int, chap_idx: int) -> dict | None:
     """Load content chương từ disk. Trả None nếu chưa có."""
-    f = novel_dir / "chapters_cache" / f"{chap_idx}.json"
+    f = novel_dir / "chapters_cache" / f"{vol_num}_{chap_idx}.json"
+    if f.exists():
+        try:
+            return json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+    return None
+
+
+def save_volumes(novel_dir: Path, volumes: list) -> None:
+    """Lưu cấu trúc volumes (title, chapter list) ra volumes.json."""
+    (novel_dir / "volumes.json").write_text(
+        json.dumps(volumes, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def load_volumes(novel_dir: Path) -> list | None:
+    """Load volumes.json. Trả None nếu chưa có."""
+    f = novel_dir / "volumes.json"
     if f.exists():
         try:
             return json.loads(f.read_text(encoding="utf-8"))
