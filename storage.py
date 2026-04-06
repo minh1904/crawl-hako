@@ -19,6 +19,9 @@ def _safe_dirname(name: str) -> str:
     return name.strip(". ")
 
 
+_KNOWN_TAGS = ("[AI dịch]", "[Sáng tác]", "[Truyện dịch]")
+
+
 def get_novel_dir(output_root: str, novel_title: str,
                   novel_info: dict | None = None,
                   split_mode: bool = False) -> Path:
@@ -26,29 +29,52 @@ def get_novel_dir(output_root: str, novel_title: str,
 
     - novel_info: dict từ parse_novel_info() để lấy translator, translation_type, status
     - split_mode: nếu True thì chia subfolder 'Đã hoàn thành' / 'Chưa hoàn thành'
+    - Nếu type thay đổi so với lần crawl trước, tự động rename folder cũ.
     """
-    folder = _safe_dirname(novel_title) if novel_title else "unknown"
+    base_name = _safe_dirname(novel_title) if novel_title else "unknown"
 
     if novel_info:
         translation_type = novel_info.get("translation_type", "human")
-        translator = novel_info.get("translator", "").strip()
         status = novel_info.get("status", "")
 
         if translation_type == "machine":
             tag = "[AI dịch]"
+        elif translation_type == "original":
+            tag = "[Sáng tác]"
         else:
             tag = "[Truyện dịch]"
 
-        folder = f"{tag} - {folder}"
+        folder = f"{tag} - {base_name}"
 
         if split_mode:
             is_completed = "hoàn thành" in status.lower() or "hoàn" in status.lower()
             subfolder = "Truyện đã hoàn thành" if is_completed else "Truyện chưa hoàn thành"
             path = Path(output_root) / subfolder / folder
+            search_roots = [
+                Path(output_root) / "Truyện đã hoàn thành",
+                Path(output_root) / "Truyện chưa hoàn thành",
+            ]
         else:
             path = Path(output_root) / folder
+            search_roots = [Path(output_root)]
+
+        # Tìm folder cũ cùng title nhưng khác tag → rename nếu type đã thay đổi
+        if not path.exists():
+            for search_root in search_roots:
+                for old_tag in _KNOWN_TAGS:
+                    if old_tag == tag:
+                        continue
+                    old_path = search_root / f"{old_tag} - {base_name}"
+                    if old_path.is_dir():
+                        logger.info(f"Type thay đổi: rename '{old_path.name}' → '{path.name}'")
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        old_path.rename(path)
+                        break
+                else:
+                    continue
+                break
     else:
-        path = Path(output_root) / folder
+        path = Path(output_root) / base_name
 
     path.mkdir(parents=True, exist_ok=True)
     return path

@@ -80,6 +80,12 @@ def parse_novel_info(soup: BeautifulSoup) -> dict:
     if any(g.lower() in _machine_kw for g in genres):
         info["translation_type"] = "machine"
 
+    # Detect từ URL path
+    if "/ai-dich/" in info["url"]:
+        info["translation_type"] = "machine"
+    elif "/sang-tac/" in info["url"]:
+        info["translation_type"] = "original"
+
     return info
 
 
@@ -331,28 +337,27 @@ def parse_listing_page(soup: BeautifulSoup) -> list[str]:
     """Parse danh sách URL truyện từ trang /danh-sach?page=N.
     Trả về list absolute URLs của các truyện.
     """
+    _NOVEL_PREFIXES = ("/truyen/", "/ai-dich/", "/sang-tac/")
+
     urls = []
     seen = set()
     for a in soup.select(".thumb_attr.series-title a[href]"):
         href = a.get("href", "")
-        if not href or "/truyen/" not in href:
+        if not href or not any(p in href for p in _NOVEL_PREFIXES):
             continue
         url = absolute_url(href)
-        # Chỉ lấy URL trang truyện (không phải chapter)
-        # /truyen/{id}-{slug} không có /c{id} ở sau
-        parts = url.split("/truyen/")
-        if len(parts) < 2:
-            continue
-        tail = parts[1]
-        # Bỏ qua nếu là chapter URL (có /c\d+ hoặc thêm path con)
-        sub_parts = tail.split("/")
-        if len(sub_parts) > 1 and sub_parts[1].startswith("c"):
-            # Lấy URL truyện gốc
-            novel_url = absolute_url("/truyen/" + sub_parts[0])
-        else:
-            novel_url = url
 
-        if novel_url not in seen:
+        novel_url = None
+        for prefix in _NOVEL_PREFIXES:
+            if prefix in url:
+                parts = url.split(prefix)
+                if len(parts) < 2:
+                    break
+                slug = parts[1].split("/")[0]
+                novel_url = absolute_url(prefix + slug)
+                break
+
+        if novel_url and novel_url not in seen:
             seen.add(novel_url)
             urls.append(novel_url)
 
