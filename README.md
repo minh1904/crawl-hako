@@ -55,8 +55,7 @@ Cần mở cửa sổ lệnh **trỏ vào đúng thư mục** vừa giải nén.
 **Cách nhanh nhất:**
 1. Mở thư mục `crawl-hako` trong File Explorer.
 2. Chuột phải rồi ấn open in terminal
-5. Gõ `cmd` rồi bấm **Enter**.
-6. Cửa sổ đen (Command Prompt) sẽ mở và đã trỏ sẵn vào đúng thư mục.
+3. Cửa sổ đen (Command Prompt) sẽ mở và đã trỏ sẵn vào đúng thư mục.
 
 ---
 
