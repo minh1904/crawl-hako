@@ -42,7 +42,7 @@ Công cụ tải truyện từ [docln.sbs](https://docln.sbs) và xuất ra file
 
 1. Quay lại trang GitHub này, bấm nút **`<> Code`** (màu xanh lá) ở góc trên phải.
 2. Chọn **"Download ZIP"**.
-3. File `crawl-hako-main.zip` sẽ được tải về thư mục `Downloads`.
+3. File `crawl-hako.zip` sẽ được tải về thư mục `Downloads`.
 4. Chuột phải vào file ZIP → chọn **"Extract All..."** → chọn nơi muốn lưu, ví dụ `D:\` → bấm **Extract**.
 5. Sau khi giải nén sẽ có thư mục `crawl-hako` (hoặc tên tương tự) chứa các file của tool.
 
@@ -54,9 +54,9 @@ Cần mở cửa sổ lệnh **trỏ vào đúng thư mục** vừa giải nén.
 
 **Cách nhanh nhất:**
 1. Mở thư mục `crawl-hako` trong File Explorer.
-2. Bấm vào **thanh địa chỉ** (chỗ hiện đường dẫn ở trên cùng) để nó được bôi đen.
-3. Gõ `cmd` rồi bấm **Enter**.
-4. Cửa sổ đen (Command Prompt) sẽ mở và đã trỏ sẵn vào đúng thư mục.
+2. Chuột phải rồi ấn open in terminal
+5. Gõ `cmd` rồi bấm **Enter**.
+6. Cửa sổ đen (Command Prompt) sẽ mở và đã trỏ sẵn vào đúng thư mục.
 
 ---
 
