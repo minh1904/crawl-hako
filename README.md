@@ -1,6 +1,7 @@
 # Crawl Hako
 
 Công cụ tải truyện từ [docln.sbs](https://docln.sbs) và xuất ra file **EPUB**, **DOCX**, **PDF**, hoặc **thư mục ảnh** hỗ trợ tiếng Việt đầy đủ.
+Lưu ý: nên vào docln.sbs để không bị chặn
 
 ---
 
