@@ -70,6 +70,10 @@ def _print_banner() -> None:
     t.add_row("Format",  f"[yellow]{', '.join(f.upper() for f in fmts)}[/]")
     t.add_row("Delay",   f"{delay}s")
     t.add_row("Folder",  "[magenta]Split HT/CHT[/]" if split_mode else "Single")
+    if _fetcher.is_logged_in():
+        t.add_row("Auth", "[green]Đã đăng nhập[/]")
+    else:
+        t.add_row("Auth", "[red]Chưa đăng nhập[/]")
 
     console.print(Panel(t, title="[bold cyan]Crawl Hako[/]", border_style="cyan", width=52))
 
@@ -600,6 +604,55 @@ def _action_settings() -> None:
     input("\nNhấn Enter để tiếp tục...")
 
 
+def _action_login() -> None:
+    """Đăng nhập / đăng xuất tài khoản docln.sbs."""
+    if _fetcher.is_logged_in():
+        action = questionary.select(
+            "Bạn đang đăng nhập. Chọn:",
+            choices=[
+                questionary.Choice("🔓  Đăng xuất",  value="logout"),
+                questionary.Choice("←  Quay lại",    value="back"),
+            ],
+            style=_MENU_STYLE,
+        ).ask()
+        if action == "logout":
+            _fetcher.logout()
+            console.print("[green]✓ Đã đăng xuất.[/]")
+            input("\nNhấn Enter để tiếp tục...")
+        return
+
+    console.print(Panel(
+        "[dim]Đăng nhập để truy cập nội dung 18+ trên docln.sbs.\n"
+        "Mật khẩu [bold]sẽ không[/bold] được lưu lại — chỉ lưu session cookie.[/]",
+        title="🔑  Đăng nhập",
+        border_style="cyan",
+    ))
+
+    username = questionary.text(
+        "Email:",
+        style=_MENU_STYLE,
+        validate=lambda v: True if v.strip() else "Cần nhập email",
+    ).ask()
+    if not username:
+        return
+
+    password = questionary.password(
+        "Mật khẩu:",
+        style=_MENU_STYLE,
+        validate=lambda v: True if v else "Cần nhập mật khẩu",
+    ).ask()
+    if not password:
+        return
+
+    console.print("[dim]Đang đăng nhập...[/]")
+    success = _fetcher.login(username.strip(), password)
+    if success:
+        console.print("[green]✓ Đăng nhập thành công! Cookie đã được lưu.[/]")
+    else:
+        console.print("[red]✗ Đăng nhập thất bại. Kiểm tra lại email/mật khẩu.[/]")
+    input("\nNhấn Enter để tiếp tục...")
+
+
 # ─── CLI paste ───────────────────────────────────────────────────────────────
 
 def _action_run_cli() -> None:
@@ -779,6 +832,7 @@ def main() -> None:
                 questionary.Choice("🔄  Build lại format từ folder có sẵn",  value="rebuild"),
                 questionary.Choice("⌨️   Chạy từ lệnh CLI",                   value="run_cli"),
                 questionary.Choice("⚙️   Cài đặt",                            value="settings"),
+                questionary.Choice("🔑  Đăng nhập / Đăng xuất",              value="login"),
                 questionary.Separator(),
                 questionary.Choice("❌  Thoát",                               value="exit"),
             ],
@@ -800,6 +854,8 @@ def main() -> None:
             _action_run_cli()
         elif choice == "settings":
             _action_settings()
+        elif choice == "login":
+            _action_login()
 
 
 if __name__ == "__main__":

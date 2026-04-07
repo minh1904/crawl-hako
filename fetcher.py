@@ -4,6 +4,7 @@ fetcher.py — HTTP client với cloudscraper (bypass CDN anti-bot) + httpx + Pl
 import atexit
 import json
 import logging
+import pathlib
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -16,6 +17,7 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://docln.sbs"
+COOKIES_PATH = pathlib.Path("cookies.json")
 
 # ── Global 429 throttle ───────────────────────────────────────────────────────
 # Khi bất kỳ thread nào nhận 429, set _rate_limit_until = thời điểm hết hạn.
@@ -75,7 +77,113 @@ def get_scraper() -> cloudscraper.CloudScraper:
             browser={"browser": "chrome", "platform": "windows", "mobile": False}
         )
         _tls.scraper.headers.update(_BROWSER_HEADERS)
+        load_cookies(_tls.scraper)  # Tự động load session cookie đã lưu
     return _tls.scraper
+
+
+# ── Auth / Cookie helpers ─────────────────────────────────────────────────────
+
+def save_cookies(scraper: cloudscraper.CloudScraper) -> None:
+    """Lưu session cookies vào cookies.json (không lưu mật khẩu)."""
+    data = [
+        {"name": c.name, "value": c.value, "domain": c.domain, "path": c.path}
+        for c in scraper.cookies
+    ]
+    try:
+        COOKIES_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"Không ghi được cookies.json: {e}")
+
+
+def load_cookies(scraper: cloudscraper.CloudScraper) -> bool:
+    """Load cookies từ cookies.json vào scraper. Trả về True nếu file tồn tại."""
+    if not COOKIES_PATH.exists():
+        return False
+    try:
+        data = json.loads(COOKIES_PATH.read_text(encoding="utf-8"))
+        for c in data:
+            scraper.cookies.set(c["name"], c["value"], domain=c.get("domain", ""))
+        return True
+    except Exception as e:
+        logger.warning(f"Không đọc được cookies.json: {e}")
+        return False
+
+
+def is_logged_in() -> bool:
+    """Kiểm tra nhanh (chỉ đọc file) xem đã lưu cookie chưa."""
+    if not COOKIES_PATH.exists():
+        return False
+    try:
+        data = json.loads(COOKIES_PATH.read_text(encoding="utf-8"))
+        return bool(data)
+    except Exception:
+        return False
+
+
+def logout() -> None:
+    """Xoá cookies đã lưu và clear cookies của thread hiện tại."""
+    if COOKIES_PATH.exists():
+        COOKIES_PATH.unlink()
+    scraper = get_scraper()
+    scraper.cookies.clear()
+    logger.info("Đã đăng xuất (cookies đã xoá).")
+
+
+def login(username: str, password: str) -> bool:
+    """Đăng nhập vào BASE_URL/login.
+
+    Quy trình:
+      1. GET /login → lấy CSRF token (_token).
+      2. POST /login với credentials + CSRF token.
+      3. Kiểm tra URL cuối: nếu không chứa '/login' → thành công.
+      4. Lưu cookies vào file.
+
+    Trả về True nếu đăng nhập thành công.
+    """
+    scraper = get_scraper()
+    login_url = BASE_URL + "/login"
+
+    # Bước 1: GET trang login để lấy CSRF token
+    try:
+        resp = scraper.get(login_url, timeout=20)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.error(f"Login: không tải được trang đăng nhập: {e}")
+        return False
+
+    soup = BeautifulSoup(resp.text, "lxml")
+    token_input = soup.find("input", {"name": "_token"})
+    if not token_input or not token_input.get("value"):
+        logger.error("Login: không tìm thấy CSRF token trên trang đăng nhập.")
+        return False
+    csrf_token = token_input["value"]
+
+    # Bước 2: POST credentials
+    payload = {
+        "_token": csrf_token,
+        "name": username,
+        "password": password,
+    }
+    try:
+        resp = scraper.post(
+            login_url, data=payload, timeout=20,
+            headers={"Referer": login_url},
+        )
+    except Exception as e:
+        logger.error(f"Login: POST thất bại: {e}")
+        return False
+
+    # Bước 3: Kiểm tra kết quả
+    # Laravel redirect về /login khi sai mật khẩu, redirect về trang khác khi thành công
+    final_url = resp.url
+    if "/login" in final_url:
+        logger.warning(f"Login thất bại — server redirect về: {final_url}")
+        return False
+
+    # Bước 4: Lưu cookies
+    save_cookies(scraper)
+    logger.info("Đăng nhập thành công.")
+    return True
 
 
 def fetch(url: str, delay: float = 1.5, retries: int = 3) -> BeautifulSoup:

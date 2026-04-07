@@ -1,13 +1,14 @@
 {
-  "output": "D:\\Truyen",
+  "output": "D:\\crawl-ln",
   "delay": 1.5,
   "format": [
-    "docx",
+    "epub",
     "images"
   ],
   "domain": "docln.sbs",
   "workers": {
     "chapters": 3,
     "images": 5
-  }
+  },
+  "split_mode": true
 }
