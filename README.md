@@ -21,7 +21,8 @@ Công cụ tải truyện từ [docln.sbs](https://docln.sbs) và xuất ra file
    Nếu không tick ô này, các bước sau sẽ báo lỗi.
 
 5. Bấm **"Install Now"** và chờ cài xong.
-6. Bấm **Close** khi xong.
+6. Mỗi khi terminal mở lên, đọc và gõ "y" để đồng ý cài từng phần đến khi nào xong là được
+7. Bấm **Close** khi xong.
 
 **Kiểm tra Python đã cài thành công chưa:**
 
@@ -43,7 +44,7 @@ Công cụ tải truyện từ [docln.sbs](https://docln.sbs) và xuất ra file
 2. Chọn **"Download ZIP"**.
 3. File `crawl-hako-main.zip` sẽ được tải về thư mục `Downloads`.
 4. Chuột phải vào file ZIP → chọn **"Extract All..."** → chọn nơi muốn lưu, ví dụ `D:\` → bấm **Extract**.
-5. Sau khi giải nén sẽ có thư mục `crawl-hako-main` (hoặc tên tương tự) chứa các file của tool.
+5. Sau khi giải nén sẽ có thư mục `crawl-hako` (hoặc tên tương tự) chứa các file của tool.
 
 ---
 
@@ -52,7 +53,7 @@ Công cụ tải truyện từ [docln.sbs](https://docln.sbs) và xuất ra file
 Cần mở cửa sổ lệnh **trỏ vào đúng thư mục** vừa giải nén.
 
 **Cách nhanh nhất:**
-1. Mở thư mục `crawl-hako-main` trong File Explorer.
+1. Mở thư mục `crawl-hako` trong File Explorer.
 2. Bấm vào **thanh địa chỉ** (chỗ hiện đường dẫn ở trên cùng) để nó được bôi đen.
 3. Gõ `cmd` rồi bấm **Enter**.
 4. Cửa sổ đen (Command Prompt) sẽ mở và đã trỏ sẵn vào đúng thư mục.
