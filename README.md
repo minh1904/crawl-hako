@@ -4,6 +4,118 @@ Công cụ tải truyện từ [docln.sbs](https://docln.sbs) và xuất ra file
 
 ---
 
+## Hướng dẫn cài đặt từ đầu (dành cho người chưa quen lập trình)
+
+> Làm theo đúng thứ tự. Mỗi bước chỉ cần làm **1 lần duy nhất**.
+
+---
+
+### Bước 1 — Tải và cài Python
+
+1. Mở trình duyệt, vào địa chỉ: **https://www.python.org/downloads/**
+2. Bấm nút vàng lớn **"Download Python 3.x.x"** (bản mới nhất).
+3. Mở file `.exe` vừa tải về (thường nằm ở thư mục `Downloads`).
+4. **⚠️ Rất quan trọng:** Trước khi bấm Install, nhìn xuống dưới cùng của cửa sổ cài đặt, tích vào ô:
+   > ☑ **Add Python to PATH**
+
+   Nếu không tick ô này, các bước sau sẽ báo lỗi.
+
+5. Bấm **"Install Now"** và chờ cài xong.
+6. Bấm **Close** khi xong.
+
+**Kiểm tra Python đã cài thành công chưa:**
+
+- Bấm phím `Windows` → gõ `cmd` → bấm Enter để mở **Command Prompt** (cửa sổ đen).
+- Gõ lệnh sau rồi bấm Enter:
+
+  ```
+  py --version
+  ```
+
+- Nếu hiện ra ví dụ `Python 3.12.4` → **thành công**, tiếp tục bước 2.
+- Nếu hiện lỗi `'py' is not recognized` → cài lại Python và nhớ tick ô **Add Python to PATH**.
+
+---
+
+### Bước 2 — Tải công cụ về máy
+
+1. Quay lại trang GitHub này, bấm nút **`<> Code`** (màu xanh lá) ở góc trên phải.
+2. Chọn **"Download ZIP"**.
+3. File `crawl-hako-main.zip` sẽ được tải về thư mục `Downloads`.
+4. Chuột phải vào file ZIP → chọn **"Extract All..."** → chọn nơi muốn lưu, ví dụ `D:\` → bấm **Extract**.
+5. Sau khi giải nén sẽ có thư mục `crawl-hako-main` (hoặc tên tương tự) chứa các file của tool.
+
+---
+
+### Bước 3 — Mở Command Prompt đúng vị trí
+
+Cần mở cửa sổ lệnh **trỏ vào đúng thư mục** vừa giải nén.
+
+**Cách nhanh nhất:**
+1. Mở thư mục `crawl-hako-main` trong File Explorer.
+2. Bấm vào **thanh địa chỉ** (chỗ hiện đường dẫn ở trên cùng) để nó được bôi đen.
+3. Gõ `cmd` rồi bấm **Enter**.
+4. Cửa sổ đen (Command Prompt) sẽ mở và đã trỏ sẵn vào đúng thư mục.
+
+---
+
+### Bước 4 — Cài các thư viện cần thiết
+
+Trong cửa sổ cmd vừa mở, gõ lệnh sau rồi bấm **Enter**:
+
+```
+py -m pip install -r requirements.txt
+```
+
+Chờ cho đến khi hiện `Successfully installed ...` — có thể mất **2–5 phút** tùy tốc độ mạng. Trong lúc chờ không cần làm gì cả.
+
+---
+
+### Bước 5 — Cài thêm trình duyệt tự động (Playwright)
+
+Tiếp tục gõ lệnh sau trong cùng cửa sổ cmd, bấm **Enter**:
+
+```
+playwright install chromium
+```
+
+Tool sẽ tự tải về một bản Chrome riêng (~150 MB) để dùng khi cần. Chờ cho đến khi hiện `Chromium ... downloaded` là xong. **Chỉ cần làm 1 lần.**
+
+---
+
+### Bước 6 — Chạy tool
+
+Gõ lệnh sau rồi bấm **Enter**:
+
+```
+py ui.py
+```
+
+Một menu sẽ hiện lên trong cửa sổ cmd:
+
+```
+? Chọn chế độ:
+  ❯ 🔗  Crawl 1 truyện (URL)
+    📋  Crawl nhiều URL (danh sách)
+    ...
+```
+
+Dùng phím **↑ ↓** để di chuyển, **Enter** để chọn.
+
+---
+
+### Lỗi thường gặp
+
+| Hiện ra gì | Nguyên nhân | Cách sửa |
+|-----------|------------|---------|
+| `'py' is not recognized` | Python chưa vào PATH | Gỡ cài đặt Python, cài lại, nhớ tick **Add Python to PATH** |
+| `No module named 'xxx'` | Chưa cài thư viện | Chạy lại `py -m pip install -r requirements.txt` |
+| `playwright: command not found` | Playwright chưa cài | Chạy `py -m pip install playwright` rồi `playwright install chromium` |
+| Cài rất chậm hoặc bị treo | Mạng chậm hoặc tường lửa | Thử dùng mạng khác hoặc tắt VPN |
+| `Permission denied` | Không có quyền ghi file | Chuột phải vào `cmd` → **Run as administrator** |
+
+---
+
 ## Bắt đầu nhanh (dành cho người mới)
 
 **Bước 1 — Cài đặt:**
