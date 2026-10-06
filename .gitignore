@@ -15,3 +15,12 @@ output/
 
 # Hướng dẫn nội bộ
 GUIDE.md
+
+# lnget v2
+.venv/
+*.egg-info/
+build/
+dist/
+cookies.json
+.pytest_cache/
+webui/node_modules/
