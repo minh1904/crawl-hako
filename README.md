@@ -1,4 +1,16 @@
-# lnget (crawl-hako v2)
+# lnget (crawl-hako v2) — bản beta
+
+> [!WARNING]
+> **Đây là bản beta (2.0.0-beta) nằm ở nhánh `rewrite-v2`.** Code được viết lại hoàn toàn so với bản cũ trên `main`.
+>
+> **Đã chạy thử:** tải truyện Hako ra EPUB / DOCX / PDF / ảnh, tiếp tục tải sau khi dừng, giao diện web, menu, CLI, `setup.bat`.
+> **Chưa kiểm chứng:** đăng nhập Hako (bằng trình duyệt và bằng mật khẩu) với tài khoản thật, và truyện/chương bị khoá vì chưa đăng nhập.
+>
+> **Lấy bản beta:** trên GitHub chọn nhánh **`rewrite-v2`** (nút chọn branch phía trên danh sách file) → **`<> Code` → Download ZIP**, rồi làm theo phần [Cài đặt](#cài-đặt-windows-không-cần-biết-lập-trình). Hoặc: `git clone -b rewrite-v2 https://github.com/minh1904/crawl-hako.git`.
+>
+> **Báo lỗi:** mở [Issue](https://github.com/minh1904/crawl-hako/issues), gửi kèm link truyện và file `lnget.log` trong thư mục truyện. Đặc biệt cần: link truyện/chương **phải đăng nhập mới xem được**, và đăng nhập có hiện đúng tên tài khoản không.
+>
+> Muốn dùng bản cũ ổn định: dùng nhánh `main`.
 
 Tải light novel từ **Hako / Cổng Light Novel** ([docln.sbs](https://docln.sbs)) ra **EPUB**, **DOCX**, **PDF** hoặc **thư mục ảnh minh hoạ**, kèm ảnh bìa và ảnh trong chương.
 
