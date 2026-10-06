@@ -3,13 +3,13 @@
 Tải light novel từ **Hako** ([docln.sbs](https://docln.sbs)) ra **EPUB / DOCX / PDF / ảnh**. Có giao diện web, menu trong cửa sổ lệnh và CLI.
 
 > [!WARNING]
-> Bản beta, viết lại hoàn toàn. **Đăng nhập Hako chưa được kiểm chứng với tài khoản thật.** Bản cũ ổn định ở nhánh `main`.
+> Bản beta, viết lại hoàn toàn. **Đăng nhập Hako chưa được kiểm chứng với tài khoản thật.** Bản cũ (v1) ở tag [`v1-legacy`](https://github.com/minh1904/crawl-hako/tree/v1-legacy).
 > Gặp lỗi? Mở [Issue](https://github.com/minh1904/crawl-hako/issues) kèm link truyện và file `lnget.log` trong thư mục truyện.
 
 ## Cài đặt (Windows)
 
 1. Cài [Python 3.10+](https://www.python.org/downloads/), **tick "Add Python to PATH"**.
-2. Chọn nhánh **`rewrite-v2`** trên GitHub → **`<> Code` → Download ZIP** → giải nén.
+2. Trên GitHub bấm **`<> Code` → Download ZIP** → giải nén.
 3. Bấm đúp **`setup.bat`**, chờ hiện `Xong!`.
 
 ## Sử dụng
