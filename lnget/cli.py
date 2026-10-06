@@ -83,6 +83,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
+    from lnget.util import ensure_utf8_stdio
+
+    ensure_utf8_stdio()
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.WARNING,
                         format="%(levelname)s %(name)s: %(message)s")

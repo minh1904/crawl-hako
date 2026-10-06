@@ -1,475 +1,219 @@
-# Crawl Hako
+# lnget (crawl-hako v2)
 
-Công cụ tải truyện từ [docln.sbs](https://docln.sbs) và xuất ra file **EPUB**, **DOCX**, **PDF**, hoặc **thư mục ảnh** hỗ trợ tiếng Việt đầy đủ.
-Lưu ý: nên vào docln.sbs để không bị chặn
+Tải light novel từ **Hako / Cổng Light Novel** ([docln.sbs](https://docln.sbs)) ra **EPUB**, **DOCX**, **PDF** hoặc **thư mục ảnh minh hoạ**, kèm ảnh bìa và ảnh trong chương.
 
----
+Có 3 cách dùng, cùng một bộ máy bên dưới:
 
-## Hướng dẫn cài đặt từ đầu (dành cho người chưa quen lập trình)
+| Cách dùng | Hợp với | Mở bằng |
+|---|---|---|
+| **Giao diện web** (khuyên dùng) | Mọi người | bấm đúp `lnget-ui.bat`, hoặc `lnget ui` |
+| **Menu trong cửa sổ lệnh** | Thích dùng phím mũi tên | bấm đúp `lnget.bat`, hoặc `lnget` |
+| **Dòng lệnh (CLI)** | Tải hàng loạt, chạy tự động | `lnget get <link>` … |
 
-> Làm theo đúng thứ tự. Mỗi bước chỉ cần làm **1 lần duy nhất**.
-
----
-
-### Bước 1 — Tải và cài Python
-
-1. Mở trình duyệt, vào địa chỉ: **https://www.python.org/downloads/**
-2. Bấm nút vàng lớn **"Download Python 3.x.x"** (bản mới nhất).
-3. Mở file `.exe` vừa tải về (thường nằm ở thư mục `Downloads`).
-4. **⚠️ Rất quan trọng:** Trước khi bấm Install, nhìn xuống dưới cùng của cửa sổ cài đặt, tích vào ô:
-   > ☑ **Add Python to PATH**
-
-   Nếu không tick ô này, các bước sau sẽ báo lỗi.
-
-5. Bấm **"Install Now"** và chờ cài xong.
-6. Mỗi khi terminal mở lên, đọc và gõ "y" để đồng ý cài từng phần đến khi nào xong là được
-7. Bấm **Close** khi xong.
-
-**Kiểm tra Python đã cài thành công chưa:**
-
-- Bấm phím `Windows` → gõ `cmd` → bấm Enter để mở **Command Prompt** (cửa sổ đen).
-- Gõ lệnh sau rồi bấm Enter:
-
-  ```
-  py --version
-  ```
-
-- Nếu hiện ra ví dụ `Python 3.12.4` → **thành công**, tiếp tục bước 2.
-- Nếu hiện lỗi `'py' is not recognized` → cài lại Python và nhớ tick ô **Add Python to PATH**.
+> **Hako đổi chính sách (2026):** một số truyện và ảnh chỉ xem được khi đã đăng nhập. lnget hỗ trợ đăng nhập (bằng trình duyệt hoặc tài khoản/mật khẩu) và chỉ lưu *phiên đăng nhập* trên máy bạn, không lưu mật khẩu. Truyện mở công khai vẫn tải được mà không cần đăng nhập.
 
 ---
 
-### Bước 2 — Tải công cụ về máy
+## Cài đặt (Windows, không cần biết lập trình)
 
-1. Quay lại trang GitHub này, bấm nút **`<> Code`** (màu xanh lá) ở góc trên phải.
-2. Chọn **"Download ZIP"**.
-3. File `crawl-hako.zip` sẽ được tải về thư mục `Downloads`.
-4. Chuột phải vào file ZIP → chọn **"Extract All..."** → chọn nơi muốn lưu, ví dụ `D:\` → bấm **Extract**.
-5. Sau khi giải nén sẽ có thư mục `crawl-hako` (hoặc tên tương tự) chứa các file của tool.
+Chỉ làm 1 lần.
 
----
+1. **Cài Python 3.10 trở lên** từ <https://www.python.org/downloads/>.
+   Khi cài, **tick ô "Add Python to PATH"** ở dưới cùng rồi bấm *Install Now*.
+2. **Tải lnget:** trên trang GitHub này bấm **`<> Code` → Download ZIP**, chuột phải file ZIP → **Extract All…** (ví dụ vào `D:\lnget`).
+3. Mở thư mục vừa giải nén, **bấm đúp `setup.bat`**. Chờ đến khi hiện `Xong!` (lần đầu mất 1–3 phút).
 
-### Bước 3 — Mở Command Prompt đúng vị trí
+Xong. Từ giờ:
 
-Cần mở cửa sổ lệnh **trỏ vào đúng thư mục** vừa giải nén.
+- Bấm đúp **`lnget-ui.bat`** → trình duyệt tự mở giao diện lnget.
+- Hoặc bấm đúp **`lnget.bat`** → menu trong cửa sổ lệnh.
 
-**Cách nhanh nhất:**
-1. Mở thư mục `crawl-hako` trong File Explorer.
-2. Chuột phải rồi ấn open in terminal
-3. Cửa sổ đen (Command Prompt) sẽ mở và đã trỏ sẵn vào đúng thư mục.
+Để nguyên cửa sổ đen của `lnget-ui.bat` trong lúc dùng; đóng nó là tắt lnget.
 
----
-
-### Bước 4 — Cài các thư viện cần thiết
-
-Trong cửa sổ cmd vừa mở, gõ lệnh sau rồi bấm **Enter**:
-
-```
-py -m pip install -r requirements.txt
-```
-
-Chờ cho đến khi hiện `Successfully installed ...` — có thể mất **2–5 phút** tùy tốc độ mạng. Trong lúc chờ không cần làm gì cả.
-
----
-
-### Bước 5 — Cài thêm trình duyệt tự động (Playwright)
-
-Tiếp tục gõ lệnh sau trong cùng cửa sổ cmd, bấm **Enter**:
-
-```
-playwright install chromium
-```
-
-Tool sẽ tự tải về một bản Chrome riêng (~150 MB) để dùng khi cần. Chờ cho đến khi hiện `Chromium ... downloaded` là xong. **Chỉ cần làm 1 lần.**
-
----
-
-### Bước 6 — Chạy tool
-
-Gõ lệnh sau rồi bấm **Enter**:
-
-```
-py ui.py
-```
-
-Một menu sẽ hiện lên trong cửa sổ cmd:
-
-```
-? Chọn chế độ:
-  ❯ 🔗  Crawl 1 truyện (URL)
-    📋  Crawl nhiều URL (danh sách)
-    ...
-```
-
-Dùng phím **↑ ↓** để di chuyển, **Enter** để chọn.
-
----
-
-### Lỗi thường gặp
-
-| Hiện ra gì | Nguyên nhân | Cách sửa |
-|-----------|------------|---------|
-| `'py' is not recognized` | Python chưa vào PATH | Gỡ cài đặt Python, cài lại, nhớ tick **Add Python to PATH** |
-| `No module named 'xxx'` | Chưa cài thư viện | Chạy lại `py -m pip install -r requirements.txt` |
-| `playwright: command not found` | Playwright chưa cài | Chạy `py -m pip install playwright` rồi `playwright install chromium` |
-| Cài rất chậm hoặc bị treo | Mạng chậm hoặc tường lửa | Thử dùng mạng khác hoặc tắt VPN |
-| `Permission denied` | Không có quyền ghi file | Chuột phải vào `cmd` → **Run as administrator** |
-
----
-
-## Bắt đầu nhanh (dành cho người mới)
-
-**Bước 1 — Cài đặt:**
-```bash
-py -m pip install -r requirements.txt
-playwright install chromium
-```
-
-**Bước 2 — Chạy menu:**
-```bash
-py ui.py
-```
-
-**Bước 3 — Tải truyện:**
-- Chọn `🔗 Crawl 1 truyện (URL)` → dán link truyện → chọn tập → Enter
-- File EPUB sẽ xuất ra thư mục `./output/`
-
-> **Không biết dùng CLI?** Dùng menu `ui.py` — điều hướng bằng phím mũi tên, **ESC** hoặc chọn `← Quay lại` để về menu trước.
-
----
-
-## Tính năng
-
-- Tải truyện theo URL hoặc quét danh sách nhiều trang
-- **Tải nhiều truyện** từ danh sách URL (nhập tay, file `.txt`, hoặc link file online)
-- Xuất **EPUB** (mặc định, đọc trên Kindle, máy đọc sách, app đọc)
-- Xuất **DOCX** (Word, chỉnh sửa được)
-- Xuất **PDF** (font tiếng Việt Noto Serif, tự tải nếu thiếu)
-- Xuất **Images** — extract toàn bộ ảnh minh họa theo tập ra thư mục
-- Tải ảnh minh họa nhúng vào file (bypass Cloudflare CDN tự động)
-- **Tải song song** — 3 chương + 5 ảnh/chương cùng lúc (~4–5x nhanh hơn)
-- **Adaptive concurrency** — tự giảm số luồng khi bị rate-limit 429
-- **Chapter-level resume** — chỉ tải lại chương thất bại, bỏ qua chương đã xong
-- **Chapter content cache** — lưu nội dung chương xuống disk, re-run không cần fetch lại HTML
-- **Retry loop với backoff** — tự động thử lại chương lỗi trước khi build file
-- **Rebuild format từ folder có sẵn** — scan folder, chọn truyện, build thêm format mới không cần crawl lại
-- **Dán lệnh CLI vào menu** — chạy lệnh CLI trực tiếp từ giao diện menu
-- Tên folder tự động có tag `[Truyện dịch]` hoặc `[AI dịch]`
-- Chia folder theo tình trạng: `Truyện đã hoàn thành` / `Truyện chưa hoàn thành`
-- Ước tính dung lượng output trước khi crawl
-- Chọn tập cụ thể (`--volumes 1,3-5`)
-- Per-novel `crawl_log.txt` ghi lại toàn bộ lỗi
-- Cấu hình domain linh hoạt (khi site đổi domain)
-- Lưu cài đặt tự động vào `crawl_config.json`
-- Menu UI tương tác (arrow-key) với nút **← Quay lại** và thông báo **tạm dừng**
-
----
-
-## Yêu cầu
-
-- Python **3.10+**
-- Cài dependencies:
+<details>
+<summary>macOS / Linux / người đã quen Python</summary>
 
 ```bash
-py -m pip install -r requirements.txt
-playwright install chromium
+git clone https://github.com/<bạn>/crawl-hako.git && cd crawl-hako
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[browser]"
+lnget ui
 ```
 
-> Windows: nếu lệnh `python` không nhận, dùng `py` thay thế.
+`[browser]` cài Playwright để đăng nhập bằng trình duyệt. Không cần thì `pip install -e .`.
+</details>
 
 ---
 
-## Khởi chạy
+## Dùng giao diện web
 
-### Menu UI (khuyến nghị)
+1. **Tải truyện** — dán link truyện (vd `https://docln.sbs/truyen/123-ten-truyen`). Dán xong là tự mở.
+2. Hiện ra thông tin truyện và **kệ sách các tập**. Bấm vào bìa để chọn/bỏ tập.
+   Mặc định đã chọn sẵn những tập chưa tải đủ; có nút *Chọn tất cả*, *Chỉ tập còn thiếu*, *Bỏ chọn*.
+3. Chọn định dạng ở thanh dưới cùng (EPUB / DOCX / PDF / Ảnh) → bấm **Tải N tập**.
+4. Theo dõi ở **Hàng đợi**: tạm dừng, tiếp tục, huỷ, thử lại; xong thì bấm biểu tượng thư mục để mở file.
+5. **Thư viện** liệt kê truyện đã tải. Bấm vào một truyện để *build thêm định dạng* (không tải lại chương), *tải chương mới* khi truyện ra thêm, hoặc *mở thư mục*.
+6. **Tài khoản** — đăng nhập Hako. **Cài đặt** — thư mục lưu, định dạng mặc định, tốc độ, domain.
+
+Trang web chỉ chạy trên máy bạn (`http://127.0.0.1:8765`), máy khác không truy cập được.
+
+---
+
+## Đăng nhập Hako
+
+Cần khi gặp thông báo *"cần đăng nhập"* hoặc ảnh/chương bị thiếu.
+
+**Cách 1 — bằng trình duyệt (khuyên dùng):** *Tài khoản → Đăng nhập bằng trình duyệt* (hoặc `lnget login --browser`).
+lnget mở Edge/Chrome ở trang đăng nhập Hako; bạn đăng nhập như bình thường (nên tick *Ghi nhớ*), cửa sổ tự đóng khi xong. Mật khẩu không đi qua lnget.
+
+**Cách 2 — tài khoản + mật khẩu:** nhập trên trang *Tài khoản* (hoặc `lnget login`). lnget gửi một lần tới Hako để lấy phiên đăng nhập, không lưu mật khẩu.
+
+Phiên đăng nhập lưu ở `%APPDATA%\lnget\sessions\` (Windows) hoặc `~/.config/lnget/sessions/`. **Đăng xuất** sẽ xoá file này. Không chia sẻ thư mục đó cho người khác.
+
+---
+
+## Menu trong cửa sổ lệnh
+
+Chạy `lnget` (hoặc bấm đúp `lnget.bat`):
+
+```
+📥  Tải truyện (dán link)
+📋  Tải nhiều truyện (danh sách link / file)
+🔎  Quét trang danh sách Hako
+📚  Thư viện — build thêm định dạng, mở thư mục
+👤  Tài khoản / đăng nhập
+🌐  Mở Web UI trên trình duyệt
+⚙️   Cài đặt
+```
+
+`↑ ↓` di chuyển, `Enter` chọn, `Space` tick ô, **`← Quay lại`** hoặc `Ctrl+C` để lùi.
+
+---
+
+## Dòng lệnh (CLI)
 
 ```bash
-py ui.py
+lnget get https://docln.sbs/truyen/123-ten-truyen            # tải tất cả tập, định dạng mặc định
+lnget get URL -f epub pdf                                     # chọn định dạng
+lnget get URL -v 1,3-5                                        # chỉ tập 1, 3, 4, 5  (4- = từ tập 4 đến hết)
+lnget get URL1 URL2 --file ds.txt                             # nhiều truyện; file: mỗi dòng 1 link, # để ghi chú
+lnget get URL --refetch                                       # tải lại cả chương đã có
+lnget info URL                                                # xem danh sách tập, tập nào đã tải
+lnget list --pages 1-3                                        # quét /danh-sach trang 1–3 và tải hết
+lnget list --url "https://docln.sbs/the-loai/mystery?hoanthanh=1" --pages 1- --dry-run
+lnget login --browser | lnget login | lnget logout | lnget whoami
+lnget library                                                 # truyện đã tải
+lnget rebuild "D:\Truyen\[Truyện dịch] Tên truyện" -f docx    # xuất thêm định dạng, không cần mạng
+lnget config                                                  # xem cài đặt
+lnget config output="D:\Truyen" formats=epub,pdf delay=1.5
+lnget ui --port 9000 --no-browser
 ```
 
-Hiện menu chọn chế độ bằng phím mũi tên:
+Link domain cũ (`ln.hako.vn`, `docln.net`) vẫn dùng được — lnget tự đổi sang domain hiện tại.
 
-```
-╭────────── Crawl Hako ──────────╮
-│  Domain  docln.sbs              │
-│  Output  D:\Truyen              │
-│  Format  EPUB                   │
-│  Delay   1.5s                   │
-│  Folder  Single                 │
-╰─────────────────────────────────╯
-
-? Chọn chế độ:
-  ❯ 🔗  Crawl 1 truyện (URL)
-    📋  Crawl nhiều URL (danh sách)
-    📄  Crawl danh sách (nhiều trang)
-    🔄  Build lại format từ folder có sẵn
-    ⌨️   Chạy từ lệnh CLI
-    ⚙️   Cài đặt
-    ────
-    ❌  Thoát
-```
-
-**Điều hướng:**
-- `↑ ↓` — di chuyển
-- `Enter` — chọn
-- `ESC` hoặc chọn `← Quay lại` — về menu trước
-- `Ctrl+C` trong lúc crawl — tạm dừng (tiến trình tự lưu, chạy lại để tiếp tục)
-
-#### Tải 1 truyện
-
-1. Chọn `🔗 Crawl 1 truyện (URL)`
-2. Dán link truyện (vd: `https://docln.sbs/truyen/123-ten-truyen`)
-3. Chọn tập muốn tải (Space bỏ chọn, Enter xác nhận)
-4. Chọn format, thư mục lưu
-5. Chọn `▶ Bắt đầu crawl`
-
-#### Tải nhiều truyện (danh sách URL)
-
-1. Chọn `📋 Crawl nhiều URL (danh sách)`
-2. Chọn cách nhập:
-   - **Nhập tay** — gõ/dán từng URL, Enter sau mỗi URL, dòng trống để kết thúc
-   - **File local** — nhập đường dẫn file `.txt` (mỗi dòng 1 URL, `#` để comment)
-   - **Link online** — dán link tới file `.txt` trên mạng (GitHub raw, Pastebin...)
-3. Chọn format, xác nhận → crawl tuần tự từng truyện
-
-Ví dụ file `urls.txt`:
-```
-# Truyện yêu thích
-https://docln.sbs/truyen/123-truyen-a
-https://docln.sbs/truyen/456-truyen-b
-
-# Đang theo dõi
-https://docln.sbs/truyen/789-truyen-c
-```
-
-#### Dán lệnh CLI vào menu
-
-1. Chọn `⌨️ Chạy từ lệnh CLI`
-2. Dán lệnh vào (phần `py crawler.py` có thể bỏ hoặc giữ)
-3. Xác nhận → chạy
+**Tạm dừng / tiếp tục:** `Ctrl+C` để dừng. Chạy lại đúng lệnh đó, các chương đã tải được bỏ qua.
 
 ---
 
-### CLI
-
-```bash
-# Crawl 1 truyện, xuất EPUB (mặc định)
-py crawler.py --url https://docln.sbs/truyen/123-ten-truyen
-
-# Chọn format
-py crawler.py --url https://docln.sbs/truyen/123-ten-truyen --format epub docx pdf images
-
-# Chỉ tải tập 1, 3, 4, 5
-py crawler.py --url https://docln.sbs/truyen/123-ten-truyen --volumes "1,3-5"
-
-# Chỉ định thư mục lưu
-py crawler.py --url https://docln.sbs/truyen/123-ten-truyen --output "D:\Truyen"
-
-# Crawl nhiều URL cùng lúc (space-separated)
-py crawler.py --urls https://docln.sbs/truyen/123 https://docln.sbs/truyen/456
-
-# Crawl từ file danh sách URL (local)
-py crawler.py --url-file urls.txt
-
-# Crawl từ file danh sách URL (link online)
-py crawler.py --url-file "https://raw.githubusercontent.com/user/repo/main/urls.txt"
-
-# Crawl danh sách trang 1–5
-py crawler.py --page 1 --page-end 5
-
-# Crawl danh sách đến hết
-py crawler.py --page 1 --page-end auto
-
-# Crawl theo thể loại/lọc
-py crawler.py --page 1 --page-end auto --list-url "https://docln.sbs/the-loai/mystery?hoanthanh=1"
-```
-
----
-
-## Tham số CLI
-
-| Tham số | Mặc định | Mô tả |
-|---------|---------|-------|
-| `--url` | — | URL trang truyện cụ thể |
-| `--urls` | — | Nhiều URL truyện cách nhau bằng dấu cách |
-| `--url-file` | — | File `.txt` local hoặc link online chứa danh sách URL (mỗi dòng 1 URL, `#` để comment) |
-| `--page` | — | Trang bắt đầu trong `/danh-sach` |
-| `--page-end` | `auto` | Trang kết thúc (số hoặc `auto`) |
-| `--format` | `epub` | Format output: `epub` `docx` `pdf` `images` (chọn nhiều) |
-| `--volumes` | tất cả | Chọn tập: `1,3-5,7` hoặc `all` |
-| `--delay` | `1.5` | Delay giữa request (giây) |
-| `--output` | `./output` | Thư mục lưu file |
-| `--domain` | `docln.sbs` | Domain site (khi site đổi domain mới) |
-| `--list-url` | `/danh-sach` | URL danh sách tùy chỉnh (lọc thể loại, tag...) |
-
----
-
-## Tạm dừng và tiếp tục
-
-Nhấn **Ctrl+C** bất kỳ lúc nào để tạm dừng. Tool sẽ hiện:
+## Thư mục kết quả
 
 ```
-⏸ Đã tạm dừng!
-Tiến trình đã lưu tự động. Chạy lại cùng URL để tiếp tục — các chương đã tải sẽ không tải lại.
-```
-
-Chạy lại cùng lệnh/URL là tool sẽ tự bỏ qua chương đã có và tiếp tục từ chỗ dừng.
-
----
-
-## Cấu trúc thư mục output
-
-### Chế độ Single (1 folder chung)
-
-```
-output/
-└── [Truyện dịch] - Tên Truyện/
-    ├── EPUB/
-    │   ├── [Tập 1] Tên Truyện.epub
-    │   └── [Tập 2] Tên Truyện.epub
-    ├── DOCX/
-    │   └── [Tập 1] Tên Truyện.docx
-    ├── PDF/
-    │   └── [Tập 1] Tên Truyện.pdf
-    ├── IMAGES/
-    │   └── [Tập 1] Tên Truyện/
-    │       ├── 000_cover.jpg
-    │       └── 001.jpg
-    ├── chapters_cache/     ← cache nội dung chương (resume)
-    │   ├── 1_0.json        ← tập 1, chương 0
-    │   ├── 1_1.json
-    │   └── 2_0.json        ← tập 2, chương 0
+<thư mục lưu>/
+└── [Truyện dịch] Tên truyện/
+    ├── EPUB/   Tên truyện - Vol 1.epub
+    ├── DOCX/   Tên truyện - Vol 1.docx
+    ├── PDF/    Tên truyện - Vol 1.pdf
+    ├── IMAGES/ Tên truyện - Vol 1/   000_cover.jpg, 001.jpg, …, manifest.txt
     ├── cover.jpg
-    ├── info.json
-    ├── volumes.json        ← cấu trúc tập/chương (dùng cho rebuild)
-    ├── index.json          ← trạng thái từng chương (done/error)
-    └── crawl_log.txt
+    ├── novel.json      thông tin truyện + danh sách tập/chương
+    ├── lnget.log       nhật ký: chương lỗi, ảnh lỗi, file đã xuất
+    └── .cache/         nội dung chương + ảnh đã tải (để tiếp tục và build lại)
 ```
 
-### Chế độ Split (chia theo tình trạng)
-
-```
-output/
-├── Truyện đã hoàn thành/
-│   └── [Truyện dịch] - Tên Truyện/
-│       └── ...
-└── Truyện chưa hoàn thành/
-    └── [AI dịch] - Tên Truyện 2/
-        └── ...
-```
-
-**Tag tên folder:**
-- `[Truyện dịch]` — bản dịch do người dịch
-- `[AI dịch]` — bản dịch máy (Machine Translation)
+- Tag tên thư mục: `[Truyện dịch]`, `[AI dịch]`, `[Sáng tác]`.
+- Bật *Chia thư mục theo tình trạng* để tách `Đã hoàn thành/` và `Chưa hoàn thành/`. Khi truyện đổi tên hoặc hoàn thành, lnget tự chuyển thư mục cũ sang chỗ mới.
+- Xoá `.cache/` để giải phóng dung lượng; lần sau tải tiếp hoặc build lại sẽ phải tải lại.
 
 ---
 
-## Cài đặt (`crawl_config.json`)
+## Cài đặt
 
-Sau lần chạy đầu tiên, cài đặt được lưu tự động:
+Lưu ở `%APPDATA%\lnget\config.json` (đổi qua trang *Cài đặt*, menu, hoặc `lnget config key=value`).
 
-```json
-{
-  "output": "D:\\Truyen",
-  "delay": 1.5,
-  "format": ["epub"],
-  "domain": "docln.sbs",
-  "workers": {
-    "chapters": 3,
-    "images": 5
-  },
-  "split_mode": false
-}
+| Khoá | Mặc định | Ý nghĩa |
+|---|---|---|
+| `output` | `~/Downloads/lnget` | Thư mục lưu truyện |
+| `formats` | `["epub"]` | Định dạng mặc định: `epub` `docx` `pdf` `images` |
+| `delay` | `1.0` | Giây chờ giữa 2 request tới trang của site (ảnh trên CDN ngoài tải nhanh hơn) |
+| `chapter_workers` | `3` | Số chương tải song song (1–8) |
+| `image_workers` | `4` | Số ảnh tải song song (1–16) |
+| `split_by_status` | `false` | Chia thư mục Đã/Chưa hoàn thành |
+| `keep_image_cache` | `true` | Giữ ảnh đã tải để build lại nhanh |
+| `domains` | `{}` | Domain mới khi site đổi, vd `lnget config domain.hako=docln.moi` |
+
+Đặt biến môi trường `LNGET_HOME` để đổi nơi lưu config/session (ví dụ chạy portable từ USB).
+
+---
+
+## Lỗi thường gặp
+
+| Hiện ra | Nguyên nhân / cách sửa |
+|---|---|
+| `'py' is not recognized` | Python chưa vào PATH → cài lại Python, tick **Add Python to PATH** |
+| `Chưa cài đặt. Hãy chạy setup.bat trước.` | Chạy `setup.bat` một lần |
+| `Chưa hỗ trợ trang này` | Link không phải Hako, hoặc Hako đổi domain → *Cài đặt → Domain* |
+| `… cần đăng nhập Hako` / gợi ý đăng nhập sau khi tải | Đăng nhập rồi tải lại; chỉ phần còn thiếu được tải |
+| `Site giới hạn tốc độ (429)` | lnget tự chờ rồi tải tiếp. Hay gặp thì tăng `delay` hoặc giảm số luồng |
+| Nhiều ảnh lỗi `404` | Ảnh gốc (thường là link Discord/imgur cũ) đã bị xoá phía nguồn — không tải được; file vẫn xuất với dòng *[Ảnh không tải được]* |
+| Không mở được trình duyệt khi đăng nhập | Cài Edge hoặc Chrome, hoặc chạy `.venv\Scripts\playwright install chromium`; hoặc dùng cách đăng nhập bằng mật khẩu |
+| PDF lỗi dấu tiếng Việt | Lần đầu xuất PDF cần mạng để tải font Noto Serif vào `%APPDATA%\lnget\fonts` |
+
+Chi tiết lỗi của từng truyện nằm trong `lnget.log` ở thư mục truyện. Chạy CLI với `--debug` để xem log đầy đủ.
+
+---
+
+## Nâng cấp từ bản cũ (crawl-hako v1)
+
+- `py ui.py` → `lnget` (menu) hoặc `lnget ui` (web). `py crawler.py --url X` → `lnget get X`.
+- Thư mục truyện tải bằng bản cũ **không dùng tiếp được** (cấu trúc cache khác). Tải lại bằng lnget, hoặc giữ file EPUB/PDF cũ như bình thường.
+- `cookies.json` và `crawl_config.json` cũ không còn dùng; hãy xoá `cookies.json` nếu còn.
+
+---
+
+## Dành cho người phát triển
+
+```
+lnget/
+  sources/        mỗi site 1 file: base.py (interface Source), hako.py
+  http.py         HttpClient (curl_cffi giả lập Chrome), throttle theo host, 429, cookie dùng chung
+  engine.py       chạy job, phát event; không in gì — CLI / menu / web tự hiển thị
+  library.py      thư mục truyện, cache chương theo ID, cache ảnh
+  exporters/      epub, docx, pdf, images — cùng chữ ký export(...)
+  cli.py tui.py console.py auth.py
+  web/server.py   FastAPI + SSE (chỉ 127.0.0.1, yêu cầu header X-Lnget cho request ghi)
+  web/static/     giao diện đã build (được commit để người dùng không cần Node)
+webui/            mã nguồn giao diện: React + Vite + Tailwind v4 + shadcn/ui
+tests/            pytest + HTML mẫu thật của từng site
 ```
 
-| Key | Mô tả |
-|-----|-------|
-| `output` | Thư mục lưu file |
-| `delay` | Giây chờ giữa các request |
-| `format` | Danh sách format mặc định |
-| `domain` | Domain site |
-| `workers.chapters` | Số chương tải song song (mặc định 3, tối đa 10) |
-| `workers.images` | Số ảnh tải song song mỗi chương (mặc định 5, tối đa 20) |
-| `split_mode` | `true` = chia folder HT/CHT, `false` = 1 folder chung |
+**Chạy test:** `pip install -e ".[dev]"` rồi `pytest`.
 
-Chỉnh sửa file này hoặc dùng menu **Cài đặt** trong `ui.py`.
+**Sửa giao diện web** (cần Node 20+):
 
----
-
-## Rebuild format từ folder có sẵn
-
-Nếu đã crawl trước đó (có `chapters_cache/`) và muốn build thêm format mới mà không crawl lại:
-
-```
-ui.py → 🔄 Build lại format từ folder có sẵn
-  → Chọn folder gốc → scan tự động tìm truyện
-  → Checkbox chọn truyện (hiển thị format đã có)
-  → Chọn format muốn build thêm → Rebuild
-```
-
-- Không fetch lại HTML chương — đọc thẳng từ `chapters_cache/`
-- Chỉ re-download ảnh (cần nhúng vào file)
-- Nếu chưa có `volumes.json`: tự fetch 1 request từ URL trong `info.json` để lấy cấu trúc tập
-- Truyện crawl bằng phiên bản cũ (chưa có cache): hiển thị placeholder và nhắc crawl lại
-
----
-
-## Xử lý 429 / Rate Limit
-
-- **Global throttle**: khi 1 thread nhận 429, toàn bộ thread còn lại tự chờ theo `Retry-After`
-- **Adaptive workers**: nếu 429 liên tiếp ≥ 2 lần → tự giảm số luồng xuống còn một nửa
-- **Retry trước build**: sau khi fetch xong, tự retry chương lỗi (60s → 120s → 240s backoff) trước khi xuất file
-- **Re-run thông minh**: nếu volume có chương lỗi → tự rebuild lại file thay vì bỏ qua
-
----
-
-## Xử lý Cloudflare
-
-Ảnh CDN (`i.hako.vip`, `i2.hako.vip`) được bảo vệ bởi Cloudflare. Tool dùng 3 tầng fallback:
-
-1. **cloudscraper** — bypass CF JS challenge tự động
-2. **httpx HTTP/2** — fallback nếu cloudscraper thất bại
-3. **Playwright (Chromium)** — browser thật, capture ảnh qua `page.on("response")` trong lúc navigate chapter page; inject `cf_clearance` cookie vào scraper cho các request tiếp theo
-
----
-
-## Tốc độ tải
-
-Với cấu hình mặc định (3 chương song song, 5 ảnh/chương):
-
-| Truyện | Trước | Sau | Nhanh hơn |
-|--------|-------|-----|-----------|
-| 30 chương, avg 3 ảnh | ~2.5 phút | ~31s | **~5x** |
-| Vol minh họa nặng (12 chương, 15 ảnh) | ~3 phút | ~20s | **~9x** |
-| 50 chương, avg 4 ảnh | ~5 phút | ~53s | **~5x** |
-
-> Thời gian thực tế phụ thuộc băng thông. Nếu bị site rate-limit, tool tự giảm workers.
-
----
-
-## Đổi domain
-
-Khi site chuyển sang domain mới:
-
-**Qua menu:** `ui.py` → Cài đặt → nhập domain mới.
-
-**Qua CLI:**
 ```bash
-py crawler.py --url https://domain-moi.com/truyen/123 --domain domain-moi.com
+cd webui && npm install
+lnget ui --no-browser          # terminal 1: API ở :8765
+npm run dev                    # terminal 2: http://localhost:5173 (proxy /api)
+npm run build                  # build ra lnget/web/static — nhớ commit thư mục này
 ```
 
----
+**Thêm site mới:** tạo `lnget/sources/<site>.py` kế thừa `Source`, cài `fetch_novel()` và `fetch_chapter()` (dùng `_html.extract_elements` để lấy đoạn văn + ảnh), thêm class vào `SOURCE_CLASSES` trong `lnget/sources/__init__.py`, và lưu vài trang HTML thật vào `tests/fixtures/<site>/` để viết test. Site cần đăng nhập thì cài thêm `login()`, `whoami()`, `is_login_cookie()`.
 
-## Cấu trúc code
+### Lộ trình
 
-| File | Vai trò |
-|------|---------|
-| `ui.py` | Menu UI tương tác (questionary + rich) |
-| `crawler.py` | Orchestrator chính, CLI entry point, ThreadPoolExecutor |
-| `fetcher.py` | HTTP client thread-safe (cloudscraper + httpx + Playwright), global 429 throttle |
-| `parser.py` | HTML parser — trích xuất nội dung, translator/translation_type, XOR decrypt |
-| `storage.py` | Quản lý file I/O, index resume, chapter cache, path helpers |
-| `epub_builder.py` | Xuất EPUB |
-| `docx_builder.py` | Xuất DOCX |
-| `pdf_builder.py` | Xuất PDF (Noto Serif, tự tải font) |
-| `images_builder.py` | Xuất thư mục ảnh + manifest.txt |
+- [x] Lõi mới đa site + Hako (đăng nhập, giải mã nội dung, ảnh CDN), CLI, menu, Web UI
+- [ ] Valvrare Team (valvrareteam.net)
+- [ ] Bản `lnget.exe` portable (không cần cài Python)
+- [ ] Extension trình duyệt (gửi phiên đăng nhập sang lnget, tải nhanh từ trang đang đọc)
+
+Dùng cho mục đích đọc cá nhân. Hãy ủng hộ nhóm dịch và tác giả.

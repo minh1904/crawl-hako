@@ -1,8 +1,6 @@
 """Hiển thị event của engine trong terminal (dùng chung cho CLI và menu)."""
 from __future__ import annotations
 
-import os
-import sys
 from pathlib import Path
 
 from rich.console import Console
@@ -10,13 +8,9 @@ from rich.panel import Panel
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
-if os.name == "nt":  # tiếng Việt trên cmd/PowerShell cũ
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8")
-        except (AttributeError, ValueError):
-            pass
+from lnget.util import ensure_utf8_stdio
 
+ensure_utf8_stdio()
 console = Console(highlight=False)
 
 
