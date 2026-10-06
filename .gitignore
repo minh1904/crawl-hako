@@ -24,3 +24,4 @@ dist/
 cookies.json
 .pytest_cache/
 webui/node_modules/
+*.tsbuildinfo
